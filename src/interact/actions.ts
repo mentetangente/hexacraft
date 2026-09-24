@@ -1,5 +1,5 @@
 import type { Cell, Grid } from '../grid';
-import { Block } from '../world/blocks';
+import { Block, isWater } from '../world/blocks';
 import { CHUNK_HEIGHT } from '../world/Chunk';
 import type { PlayerConfig } from '../player/config';
 import type { PlayerState } from '../player/physics';
@@ -37,7 +37,7 @@ export function tryPlace(
   if (placeYLayer < 0 || placeYLayer >= CHUNK_HEIGHT) return null;
 
   const existing = sampler.getBlock(placeCell.a, placeCell.b, placeYLayer);
-  if (existing !== Block.Air && existing !== Block.Water) return null;
+  if (existing !== Block.Air && !isWater(existing)) return null;
 
   if (wouldCollideWithPlayer(grid, placeCell, placeYLayer, playerState, cfg)) return null;
 

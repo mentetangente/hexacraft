@@ -8,6 +8,7 @@ import type { World } from '../world/World';
 export interface BenchmarkOptions {
   readonly durationSec: number; // 30
   readonly gridKind: 'hex' | 'square';
+  readonly split: boolean;
 }
 
 export class Benchmark {
@@ -33,12 +34,13 @@ export class Benchmark {
       this.finish(world);
       return false;
     }
-    // Órbita ancha alrededor del origen mirando hacia el centro.
-    const radius = 40;
-    const angle = elapsed * 0.15 * Math.PI * 2; // ~2/3 vuelta en 30s
-    const cy = 32 + Math.sin(elapsed * 0.4) * 4;
-    camera.position.set(Math.cos(angle) * radius, cy, Math.sin(angle) * radius);
-    camera.lookAt(0, 22, 0);
+    // Vuelo en línea recta a velocidad constante: cada frame entramos en
+    // territorio nuevo, así se ejercita generación y mallado de chunks todo
+    // el rato (a diferencia de una órbita, que revisita las mismas zonas).
+    const speed = 8; // u/s
+    const x = elapsed * speed;
+    camera.position.set(x, 32, 0);
+    camera.lookAt(x + 10, 28, 0);
     return true;
   }
 
@@ -53,8 +55,9 @@ export class Benchmark {
     const grid = world.grid.kind === 'hex' ? 'hex' : 'sq';
     const nf1 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 1, maximumFractionDigits: 1 });
     const nf2 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const splitTag = this.opts.split ? ' split' : '';
     const summary =
-      `benchmark ${grid} · fps=${nf1.format(meanFps)} · p95=${nf1.format(p95)}ms · ` +
+      `benchmark ${grid}${splitTag} · fps=${nf1.format(meanFps)} · p95=${nf1.format(p95)}ms · ` +
       `gen=${nf2.format(s.meanGenMs)}ms · mesh=${nf2.format(s.meanMeshMs)}ms · chunks=${s.chunksLoaded}`;
     this.showSummary(summary);
   }
@@ -86,5 +89,6 @@ export function parseBenchmark(): BenchmarkOptions | null {
   if (p.get('benchmark') !== '1') return null;
   const g = p.get('grid');
   const gridKind: 'hex' | 'square' = g === 'square' ? 'square' : 'hex';
-  return { durationSec: 30, gridKind };
+  const split = p.get('split') === '1';
+  return { durationSec: 30, gridKind, split };
 }

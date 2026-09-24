@@ -12,8 +12,14 @@ import { createBlockTexture } from './render/textures';
 import { createWorldMaterials } from './render/materials';
 import { AppState, hashToState, stateToHash } from './state/hashState';
 import { Persistence } from './state/persistence';
-import { buildSave, downloadSave, pickImportFile } from './state/exportImport';
+import {
+  buildSave,
+  downloadSave,
+  importErrorMessage,
+  pickImportFile,
+} from './state/exportImport';
 import { WorldEdits } from './interact/edits';
+import { Block } from './world/blocks';
 import { SplitView } from './render/splitView';
 import { Benchmark, parseBenchmark } from './state/benchmark';
 
@@ -53,9 +59,14 @@ function parseDistanceFromURL(): number {
 const bench = parseBenchmark();
 const initialHashState = hashToState(window.location.hash);
 
-// Semilla: benchmark fija una; el hash puede pisar; si no, 1234.
+// Semilla: benchmark fija una; ?semilla= la pisa; el hash tambien; si no, 1234.
 let seed = 1234;
 if (bench) seed = 424242;
+const seedParam = new URLSearchParams(window.location.search).get('semilla');
+if (seedParam !== null) {
+  const n = parseInt(seedParam, 10);
+  if (Number.isFinite(n)) seed = n;
+}
 if (initialHashState?.seed !== undefined) seed = initialHashState.seed;
 
 let renderDistance = initialHashState?.dist ?? parseDistanceFromURL();
@@ -149,6 +160,9 @@ let leftDown = false;
 let rightDown = false;
 let leftNextAt = 0;
 let rightNextAt = 0;
+// Último hit del raycast, actualizado cada frame; se usa desde los handlers
+// de teclado (por ejemplo, la tecla M para poner fuentes en las dos rejillas).
+let lastHit: RayHit | null = null;
 
 canvas.addEventListener('mousedown', (e) => {
   if (!player.isLocked()) return;
@@ -260,13 +274,35 @@ window.addEventListener('keydown', (e) => {
       hud.flashMessage('Guardado descargado');
       break;
     case 'KeyN': // Nuevo (importar)
-      pickImportFile((save) => {
-        if (!save) {
-          hud.flashMessage('Archivo inválido');
+      pickImportFile((result) => {
+        if (!result.ok) {
+          hud.flashMessage(importErrorMessage(result.error));
           return;
         }
+        const save = result.save;
         if (save.seed !== seed) {
-          hud.flashMessage(`Semilla del archivo (${save.seed}) distinta a la actual (${seed})`);
+          const change = window.confirm(
+            `El archivo es de la semilla ${save.seed}. ¿Cambiar a esa semilla y cargar el guardado?`,
+          );
+          if (!change) {
+            hud.flashMessage('Importación cancelada');
+            return;
+          }
+          // Guardamos los edits del archivo bajo la nueva semilla en localStorage
+          // y recargamos con ?semilla=<nueva>. Al arrancar, se cargarán.
+          try {
+            localStorage.setItem(
+              `hexacraft:v1:${save.seed}:hex`,
+              JSON.stringify({ version: 1, entries: save.hex }),
+            );
+            localStorage.setItem(
+              `hexacraft:v1:${save.seed}:square`,
+              JSON.stringify({ version: 1, entries: save.square }),
+            );
+          } catch (err) {
+            console.warn('Hexacraft: no se pudo pre-guardar bajo la nueva semilla', err);
+          }
+          window.location.search = `?semilla=${save.seed}`;
           return;
         }
         const newHex = new WorldEdits();
@@ -282,6 +318,21 @@ window.addEventListener('keydown', (e) => {
         persistence.flush(editsByKind);
         hud.flashMessage('Guardado importado');
       });
+      break;
+    case 'KeyM':
+      // Coloca una fuente en la misma posición de mundo en las DOS rejillas
+      // (para grabar la comparación en vista dividida). Requiere apuntar a
+      // algo (para tener placeYLayer).
+      if (lastHit) {
+        const wx = lastHit.point.x;
+        const wz = lastHit.point.z;
+        const yPlace = lastHit.placeYLayer;
+        const cHex = worldHex.grid.cellAt({ x: wx, z: wz });
+        const cSq = worldSq.grid.cellAt({ x: wx, z: wz });
+        worldHex.setBlock(cHex.a, cHex.b, yPlace, Block.Water);
+        worldSq.setBlock(cSq.a, cSq.b, yPlace, Block.Water);
+        hud.flashMessage('Fuente en ambas rejillas');
+      }
       break;
     case 'Delete':
       if (window.confirm('¿Borrar mis construcciones de esta semilla?')) {
@@ -310,7 +361,10 @@ const clock = new THREE.Clock();
 const camDir = new THREE.Vector3();
 const cfg = DEFAULT_PLAYER_CONFIG;
 
-if (benchmark) benchmark.start();
+if (benchmark) {
+  if (bench?.split) split.setActive(true);
+  benchmark.start();
+}
 
 function tick(): void {
   const dt = clock.getDelta();
@@ -324,6 +378,15 @@ function tick(): void {
   if (split.active) {
     const other = activeWorld === worldHex ? worldSq : worldHex;
     other.update(camera.position.x, camera.position.z);
+  }
+
+  // Simulación de agua: siempre el activo; en split, también el otro para
+  // que las dos rejillas avancen sincronizadas.
+  const dtMs = dt * 1000;
+  activeWorld.updateWater(dtMs);
+  if (split.active) {
+    const other = activeWorld === worldHex ? worldSq : worldHex;
+    other.updateWater(dtMs);
   }
 
   if (!benchDriving) player.update(dt);
@@ -341,6 +404,7 @@ function tick(): void {
     );
   }
 
+  lastHit = hit;
   const cinema = hud.isCinema();
   if (hit && !cinema && !split.active) outline.update(activeWorld.grid, hit.cell, hit.yLayer);
   else outline.hide();

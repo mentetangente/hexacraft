@@ -1,5 +1,5 @@
 import type { Cell, Grid, Point2 } from '../grid';
-import { Block, isSolid } from '../world/blocks';
+import { Block, isSolid, isWater } from '../world/blocks';
 import type { PlayerConfig } from './config';
 
 // Física pura del jugador. No importa three.js. La geometría depende solo de
@@ -200,8 +200,8 @@ function playerWaterContact(
   const cell = grid.cellAt({ x: state.position.x, z: state.position.z });
   const feetLayer = Math.floor(state.position.y + 1e-3);
   const headLayer = Math.floor(state.position.y + cfg.height - 1e-3);
-  const feet = sampler.getBlock(cell.a, cell.b, feetLayer) === Block.Water;
-  const head = sampler.getBlock(cell.a, cell.b, headLayer) === Block.Water;
+  const feet = isWater(sampler.getBlock(cell.a, cell.b, feetLayer));
+  const head = isWater(sampler.getBlock(cell.a, cell.b, headLayer));
   return { feet, head };
 }
 

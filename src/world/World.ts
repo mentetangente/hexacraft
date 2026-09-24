@@ -9,6 +9,7 @@ import { WorldMaterials, createWorldMaterials } from '../render/materials';
 import { createBlockTexture } from '../render/textures';
 import { WorldEdits } from '../interact/edits';
 import { CHUNK_SIZE } from '../grid';
+import { WaterSim } from './water';
 
 interface ChunkMeshEntry {
   opaque?: THREE.Mesh;
@@ -53,6 +54,10 @@ export class World {
   // chunks; en split view cada World mantiene el suyo.
   readonly edits: WorldEdits;
 
+  // Simulación de agua dirigida por eventos. La creamos en el constructor,
+  // usando `this` como sampler (getBlock / setSimBlock / hasChunkAt).
+  readonly waterSim: WaterSim;
+
   private genTimes: number[] = [];
   private meshTimes: number[] = [];
 
@@ -77,6 +82,7 @@ export class World {
       this.ownsMaterials = true;
     }
     this.edits = edits ?? new WorldEdits();
+    this.waterSim = new WaterSim(grid, this);
     this.opaqueGroup.name = `chunks-opaque-${grid.kind}`;
     this.waterGroup.name = `chunks-water-${grid.kind}`;
   }
@@ -190,6 +196,8 @@ export class World {
     this.record(this.genTimes, t1 - t0);
     this.dirtyMeshes.add(chunkKey(ca, cb));
     this.markNeighborsDirty(ca, cb);
+    // Reactiva la simulación de agua con las fuentes recién cargadas.
+    this.waterSim.onChunkLoaded(ca, cb);
   }
 
   private markNeighborsDirty(ca: number, cb: number): void {
@@ -333,7 +341,34 @@ export class World {
       if (cl.localB === 0) this.dirtyIfLoaded(cl.chunkA, cl.chunkB - 1);
       if (cl.localB === CHUNK_SIZE - 1) this.dirtyIfLoaded(cl.chunkA, cl.chunkB + 1);
     }
+    // Activa la simulación de agua alrededor del cambio (rompes fuente, colocas
+    // fuente, colocas sólido tapando agua...).
+    this.waterSim.activate(worldA, worldB, y);
+    this.waterSim.activateNeighbors(worldA, worldB, y);
     return true;
+  }
+
+  // Cambio interno impuesto por la simulación de agua: actualiza el chunk y
+  // encola la malla, pero NO se persiste en `edits` (el agua corriente se
+  // deriva de las fuentes en el próximo tick).
+  setSimBlock(worldA: number, worldB: number, y: number, block: Block): void {
+    if (y < 0 || y >= CHUNK_HEIGHT) return;
+    const cl = this.grid.cellToChunk({ a: worldA, b: worldB });
+    const ck = chunkKey(cl.chunkA, cl.chunkB);
+    const chunk = this.chunks.get(ck);
+    if (!chunk) return;
+    chunk.set(cl.localA, cl.localB, y, block);
+    this.dirtyMeshes.add(ck);
+    if (cl.localA === 0) this.dirtyIfLoaded(cl.chunkA - 1, cl.chunkB);
+    if (cl.localA === CHUNK_SIZE - 1) this.dirtyIfLoaded(cl.chunkA + 1, cl.chunkB);
+    if (cl.localB === 0) this.dirtyIfLoaded(cl.chunkA, cl.chunkB - 1);
+    if (cl.localB === CHUNK_SIZE - 1) this.dirtyIfLoaded(cl.chunkA, cl.chunkB + 1);
+  }
+
+  // Un paso de la simulación de agua. Marca los chunks afectados como sucios.
+  updateWater(dtMs: number): void {
+    const affected = this.waterSim.update(dtMs);
+    for (const k of affected) if (this.chunks.has(k)) this.dirtyMeshes.add(k);
   }
 
   private dirtyIfLoaded(ca: number, cb: number): void {

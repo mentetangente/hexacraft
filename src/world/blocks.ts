@@ -7,12 +7,20 @@ export enum Block {
   Dirt = 2,
   Grass = 3,
   Sand = 4,
-  Water = 5,
+  Water = 5, // fuente (nivel 8)
   Log = 6,
   Leaves = 7,
   Planks = 8,
   Brick = 9,
   Glass = 10,
+  // Agua corriente por niveles 1..7 (7 = casi llena, 1 = casi vacía).
+  WaterL1 = 11,
+  WaterL2 = 12,
+  WaterL3 = 13,
+  WaterL4 = 14,
+  WaterL5 = 15,
+  WaterL6 = 16,
+  WaterL7 = 17,
 }
 
 export type RGB = readonly [number, number, number];
@@ -130,6 +138,17 @@ export const BLOCKS: readonly BlockDef[] = [
     side: [0.7, 0.82, 0.92],
     bottom: [0.7, 0.82, 0.92],
   },
+  // Agua corriente L1..L7. Nombre, propiedades y colores idénticos a la fuente:
+  // el mesher dibuja la tapa a una altura menor según el nivel.
+  ...([1, 2, 3, 4, 5, 6, 7].map((n) => ({
+    name: `agua L${n}`,
+    solid: false,
+    opaque: false,
+    transparent: true,
+    top: [0.22, 0.45, 0.85],
+    side: [0.2, 0.42, 0.8],
+    bottom: [0.18, 0.4, 0.75],
+  })) as BlockDef[]),
 ];
 
 export function def(block: Block): BlockDef {
@@ -139,3 +158,23 @@ export function def(block: Block): BlockDef {
 export const isOpaque = (b: Block): boolean => BLOCKS[b].opaque;
 export const isTransparent = (b: Block): boolean => BLOCKS[b].transparent;
 export const isSolid = (b: Block): boolean => BLOCKS[b].solid;
+
+// Utilidades de agua por niveles. El bloque `Water` (5) es la fuente
+// (nivel 8, altura completa). `WaterL1..WaterL7` (11..17) son agua corriente
+// con niveles 1..7. El mesher pinta la tapa a altura level/8 y la física
+// trata cualquier `isWater(b)` como agua.
+export function isWater(b: Block): boolean {
+  return b === Block.Water || (b >= Block.WaterL1 && b <= Block.WaterL7);
+}
+
+export function waterLevel(b: Block): number {
+  if (b === Block.Water) return 8;
+  if (b >= Block.WaterL1 && b <= Block.WaterL7) return b - Block.WaterL1 + 1;
+  return 0;
+}
+
+export function waterBlockAtLevel(level: number): Block {
+  if (level >= 8) return Block.Water;
+  if (level >= 1 && level <= 7) return (Block.WaterL1 + level - 1) as Block;
+  return Block.Air;
+}

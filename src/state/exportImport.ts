@@ -3,9 +3,12 @@ import {
   WorldEdits,
   isValidSerializedEdits,
 } from '../interact/edits';
+import { BLOCKS } from '../world/blocks';
+import { CHUNK_HEIGHT, CHUNK_WIDTH } from '../world/Chunk';
 
 // Formato de archivo JSON para exportar/importar construcciones. Incluye
-// versión y validación estricta al importar.
+// versión y validación estricta al importar (rechaza malformados sin romper
+// el mundo actual).
 
 export interface HexacraftSave {
   readonly format: 'hexacraft-save';
@@ -14,6 +17,27 @@ export interface HexacraftSave {
   readonly hex: SerializedEdits;
   readonly square: SerializedEdits;
 }
+
+// Límites razonables: 5 MB de texto y 200 000 modificaciones totales.
+export const MAX_SAVE_TEXT_BYTES = 5 * 1024 * 1024;
+export const MAX_TOTAL_EDITS = 200_000;
+
+export type ImportError =
+  | 'too-large'
+  | 'not-json'
+  | 'unknown-format'
+  | 'too-many-edits'
+  | 'invalid-entry';
+
+export interface ImportOk {
+  readonly ok: true;
+  readonly save: HexacraftSave;
+}
+export interface ImportFail {
+  readonly ok: false;
+  readonly error: ImportError;
+}
+export type ImportResult = ImportOk | ImportFail;
 
 export function buildSave(
   seed: number,
@@ -40,13 +64,57 @@ export function isValidSave(v: unknown): v is HexacraftSave {
   return true;
 }
 
-export function parseSave(text: string): HexacraftSave | null {
-  try {
-    const parsed: unknown = JSON.parse(text);
-    return isValidSave(parsed) ? parsed : null;
-  } catch {
-    return null;
+function countEntries(e: SerializedEdits): number {
+  let n = 0;
+  for (const [, entries] of e) n += entries.length;
+  return n;
+}
+
+// Reglas de validación por entrada individual: chunk key con enteros, coord
+// locales en [0, CHUNK_WIDTH), y en [0, CHUNK_HEIGHT), block id en el rango
+// de la tabla BLOCKS.
+function validateEntries(edits: SerializedEdits): boolean {
+  const chunkKeyRe = /^-?\d+,-?\d+$/;
+  for (const [ck, entries] of edits) {
+    if (!chunkKeyRe.test(ck)) return false;
+    for (const [lk, blockId] of entries) {
+      const parts = lk.split(',');
+      if (parts.length !== 3) return false;
+      const la = parseInt(parts[0], 10);
+      const lb = parseInt(parts[1], 10);
+      const y = parseInt(parts[2], 10);
+      if (!Number.isInteger(la) || !Number.isInteger(lb) || !Number.isInteger(y)) return false;
+      if (la < 0 || la >= CHUNK_WIDTH) return false;
+      if (lb < 0 || lb >= CHUNK_WIDTH) return false;
+      if (y < 0 || y >= CHUNK_HEIGHT) return false;
+      if (!Number.isInteger(blockId) || blockId < 0 || blockId >= BLOCKS.length) return false;
+    }
   }
+  return true;
+}
+
+// Compat: mantiene la vieja signatura para códigos que solo necesitan el save
+// (o null). El nuevo `parseSaveDetailed` diferencia motivos del fallo.
+export function parseSave(text: string): HexacraftSave | null {
+  const r = parseSaveDetailed(text);
+  return r.ok ? r.save : null;
+}
+
+export function parseSaveDetailed(text: string): ImportResult {
+  if (text.length > MAX_SAVE_TEXT_BYTES) return { ok: false, error: 'too-large' };
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text);
+  } catch {
+    return { ok: false, error: 'not-json' };
+  }
+  if (!isValidSave(parsed)) return { ok: false, error: 'unknown-format' };
+  const total = countEntries(parsed.hex) + countEntries(parsed.square);
+  if (total > MAX_TOTAL_EDITS) return { ok: false, error: 'too-many-edits' };
+  if (!validateEntries(parsed.hex) || !validateEntries(parsed.square)) {
+    return { ok: false, error: 'invalid-entry' };
+  }
+  return { ok: true, save: parsed };
 }
 
 export function downloadSave(save: HexacraftSave): void {
@@ -63,20 +131,39 @@ export function downloadSave(save: HexacraftSave): void {
   URL.revokeObjectURL(url);
 }
 
-export function pickImportFile(cb: (save: HexacraftSave | null) => void): void {
+export function pickImportFile(cb: (result: ImportResult) => void): void {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'application/json,.json';
   input.onchange = (): void => {
     const file = input.files?.[0];
     if (!file) {
-      cb(null);
+      cb({ ok: false, error: 'not-json' });
+      return;
+    }
+    if (file.size > MAX_SAVE_TEXT_BYTES) {
+      cb({ ok: false, error: 'too-large' });
       return;
     }
     file
       .text()
-      .then((txt) => cb(parseSave(txt)))
-      .catch(() => cb(null));
+      .then((txt) => cb(parseSaveDetailed(txt)))
+      .catch(() => cb({ ok: false, error: 'not-json' }));
   };
   input.click();
+}
+
+export function importErrorMessage(err: ImportError): string {
+  switch (err) {
+    case 'too-large':
+      return 'Archivo demasiado grande';
+    case 'not-json':
+      return 'Archivo inválido (no es JSON)';
+    case 'unknown-format':
+      return 'Formato o versión desconocidos';
+    case 'too-many-edits':
+      return 'El archivo tiene demasiadas modificaciones';
+    case 'invalid-entry':
+      return 'El archivo contiene entradas fuera de rango';
+  }
 }

@@ -83,4 +83,32 @@ describe('meshChunk', () => {
     // Un bloque de agua aislado: top 2, 4 laterales × 2, sin bottom = 10 triángulos.
     expect(r.triangleCount).toBe(10);
   });
+
+  it('un bloque de cristal aislado va al mesh translúcido con 12 triángulos', () => {
+    const chunk = new Chunk(0, 0);
+    chunk.set(5, 5, 20, Block.Glass);
+    const r = meshChunk(new SquareGrid(), chunk, 0, 0, airLookup);
+    expect(r.opaque).toBeNull();
+    expect(r.water).not.toBeNull();
+    expect(r.triangleCount).toBe(12);
+  });
+
+  it('dos cristales contiguos fusionan la cara compartida', () => {
+    const chunk = new Chunk(0, 0);
+    chunk.set(5, 5, 20, Block.Glass);
+    chunk.set(6, 5, 20, Block.Glass);
+    const r = meshChunk(new SquareGrid(), chunk, 0, 0, airLookup);
+    // 12 + 12 - 4 (cara lateral compartida) = 20.
+    expect(r.triangleCount).toBe(20);
+  });
+
+  it('cristal contra piedra: la piedra dibuja la cara, el cristal no', () => {
+    const chunk = new Chunk(0, 0);
+    chunk.set(5, 5, 20, Block.Glass);
+    chunk.set(6, 5, 20, Block.Stone);
+    const r = meshChunk(new SquareGrid(), chunk, 0, 0, airLookup);
+    // Piedra: 12 caras (todos los vecinos son aire o cristal, ambos no opacos).
+    // Cristal: 12 - 2 (contra piedra opaca) = 10.
+    expect(r.triangleCount).toBe(22);
+  });
 });

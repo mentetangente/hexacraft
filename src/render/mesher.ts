@@ -4,11 +4,12 @@ import { Chunk, CHUNK_HEIGHT, CHUNK_WIDTH } from '../world/Chunk';
 import { Block, def, isOpaque } from '../world/blocks';
 import { texLayerFor } from './textures';
 
-// El mesher genera dos geometrías por chunk (opaca + agua). Cada vértice lleva
-// posición en coords de mundo, UV, capa de textura (para `sampler2DArray`) y un
-// `blockColor` de 4 canales: rgb con el color plano por cara y a con el factor
-// de sombreado por orientación. El shader alterna texturas ↔ colores planos con
-// un uniforme, así no hay que remallar al pulsar T.
+// El mesher genera dos geometrías por chunk: una opaca y una translúcida (agua
+// y cristal). Cada vértice lleva posición en coords de mundo, UV, capa de
+// textura (para `sampler2DArray`) y un `blockColor` de 4 canales: rgb con el
+// color plano por cara y a con el factor de sombreado por orientación. El
+// shader alterna texturas ↔ colores planos con un uniforme, así no hay que
+// remallar al pulsar T.
 
 export type BlockLookup = (worldA: number, worldB: number, y: number) => Block;
 
@@ -92,8 +93,12 @@ function makeGeometry(buf: MeshBuffers): THREE.BufferGeometry | null {
 }
 
 function shouldEmitFace(current: Block, neighbor: Block): boolean {
-  if (current === Block.Water) return neighbor === Block.Air;
-  return !isOpaque(neighbor);
+  if (isOpaque(current)) return !isOpaque(neighbor);
+  // Bloques translúcidos (agua, cristal): cara sólo contra vecinos de tipo
+  // distinto y no opacos. Así dos cristales o dos aguas contiguos fusionan sus
+  // caras compartidas, y las caras contra opaco las dibuja el opaco.
+  if (isOpaque(neighbor)) return false;
+  return neighbor !== current;
 }
 
 export function meshChunk(
@@ -134,8 +139,10 @@ export function meshChunk(
         const cell: Cell = { a: worldA, b: worldB };
         const c = grid.center(cell);
         const d = def(block);
+        // El agua y el cristal van al mesh translúcido; el resto al opaco.
         const isWater = block === Block.Water;
-        const buf = isWater ? water : opaque;
+        const isTranslucent = !isOpaque(block);
+        const buf = isTranslucent ? water : opaque;
 
         // ---- Tapa superior ----
         const above = y + 1 >= CHUNK_HEIGHT ? Block.Air : lookup(worldA, worldB, y + 1);

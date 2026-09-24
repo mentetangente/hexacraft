@@ -264,8 +264,9 @@ function makeBrick(data: Uint8Array, seed: number): void {
 }
 
 function makeGlass(data: Uint8Array, seed: number): void {
-  // Cristal: casi transparente con borde. Opaco por ahora (alpha=255) según
-  // acuerdo de fase; el marco se dibuja en los bordes de la baldosa.
+  // Cristal: la textura es opaca (alpha=255) pero el material translúcido
+  // aplica `uOpacity` para verlo semi-transparente. Se marca el borde de la
+  // baldosa para que se distinga el bloque.
   const s = seed ^ 0xb3aa8123;
   for (let y = 0; y < TEX_SIZE; y++) {
     for (let x = 0; x < TEX_SIZE; x++) {

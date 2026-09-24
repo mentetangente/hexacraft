@@ -1,7 +1,7 @@
 # Hexacraft
 
 Demo web de un juego de bloques con **prismas hexagonales**, hecha para el vídeo
-**"¿Por qué Minecraft no usa hexágonos?"** del canal de YouTube
+**"¿Minecraft es mejor con hexágonos?"** del canal de YouTube
 **[Mente Tangente](https://www.youtube.com/@MenteTangente)**.
 
 El objetivo no es un juego completo, sino una demo que se ve bien en cámara y

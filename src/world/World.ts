@@ -2,7 +2,7 @@ import * as THREE from 'three';
 import type { Grid } from '../grid';
 import { chunkKey } from '../grid';
 import { Block } from './blocks';
-import { Chunk, CHUNK_HEIGHT, CHUNK_WIDTH } from './Chunk';
+import { Chunk, CHUNK_HEIGHT } from './Chunk';
 import { Terrain, generateChunk } from './terrain';
 import {
   BlockLookup,
@@ -17,8 +17,15 @@ interface ChunkMeshEntry {
   water?: THREE.Mesh;
 }
 
+interface LoadCandidate {
+  ca: number;
+  cb: number;
+  d2: number;
+}
+
 const MAX_TIMINGS = 128;
 const CHUNKS_PER_UPDATE = 4;
+const MESHES_PER_UPDATE = 12;
 
 export interface WorldStats {
   readonly chunksLoaded: number;
@@ -26,6 +33,11 @@ export interface WorldStats {
   readonly meanMeshMs: number;
 }
 
+// Mundo por chunks con dos radios: uno para el mallado (`renderDistance`, lo que
+// se ve) y uno mayor para la generación (`renderDistance + 1 chunk`). El anillo
+// exterior de chunks se genera pero no se malla: sirve para que, al mallar un
+// chunk, todos sus 8 vecinos ya estén generados y el culling de caras entre
+// chunks sea correcto sin remallar cuando aparece un vecino.
 export class World {
   readonly opaqueGroup = new THREE.Group();
   readonly waterGroup = new THREE.Group();
@@ -70,56 +82,46 @@ export class World {
   update(cameraX: number, cameraZ: number): void {
     const cameraCell = this.grid.cellAt({ x: cameraX, z: cameraZ });
     const cc = this.grid.cellToChunk(cameraCell);
-    // Alcance en chunks: `renderDistance` en unidades de mundo, dividido por el
-    // ancho aproximado de un chunk en cualquier dirección. Sobrecubrir en hex
-    // porque los paralelogramos son más estrechos en un eje.
-    const span = Math.ceil(this.renderDistance / 14) + 1;
+    // Anillo de generación = anillo de mallado + 1 chunk en cada dirección.
+    const meshSpan = Math.ceil(this.renderDistance / 14) + 1;
+    const genSpan = meshSpan + 1;
     const r2 = this.renderDistance * this.renderDistance;
-    const unloadR2 = (this.renderDistance + CHUNK_WIDTH) ** 2;
-    const wanted = new Set<string>();
 
-    // 1) Recorrer un bbox en coord de chunk alrededor de la cámara y decidir
-    // cuáles cargar (los que están dentro del radio en unidades de mundo).
-    interface Candidate {
-      ca: number;
-      cb: number;
-      d2: number;
-    }
-    const missing: Candidate[] = [];
-    for (let dB = -span; dB <= span; dB++) {
-      for (let dA = -span; dA <= span; dA++) {
+    const wantedGen = new Set<string>();
+    const wantedMesh = new Set<string>();
+    const missing: LoadCandidate[] = [];
+
+    for (let dB = -genSpan; dB <= genSpan; dB++) {
+      for (let dA = -genSpan; dA <= genSpan; dA++) {
         const ca = cc.chunkA + dA;
         const cb = cc.chunkB + dB;
+        const k = chunkKey(ca, cb);
+        wantedGen.add(k);
+        const cheby = Math.max(Math.abs(dA), Math.abs(dB));
         const center = this.grid.chunkCenter(ca, cb);
         const ddx = center.x - cameraX;
         const ddz = center.z - cameraZ;
         const d2 = ddx * ddx + ddz * ddz;
-        if (d2 > r2) continue;
-        const k = chunkKey(ca, cb);
-        wanted.add(k);
+        if (cheby <= meshSpan && d2 <= r2) wantedMesh.add(k);
         if (!this.chunks.has(k)) missing.push({ ca, cb, d2 });
       }
     }
     missing.sort((a, b) => a.d2 - b.d2);
 
-    // 2) Descargar los que están fuera del radio ampliado.
-    for (const [k, entry] of this.meshes) {
-      if (wanted.has(k)) continue;
-      const chunk = this.chunks.get(k);
-      if (!chunk) continue;
-      const center = this.grid.chunkCenter(chunk.chunkA, chunk.chunkB);
-      const ddx = center.x - cameraX;
-      const ddz = center.z - cameraZ;
-      if (ddx * ddx + ddz * ddz > unloadR2) {
+    // Descarga: chunks fuera del anillo de generación (incluye los de solo-gen).
+    for (const [k, chunk] of Array.from(this.chunks)) {
+      if (wantedGen.has(k)) continue;
+      const entry = this.meshes.get(k);
+      if (entry) {
         this.disposeMeshes(entry);
         this.meshes.delete(k);
-        this.chunks.delete(k);
-        // Los vecinos vuelven a tener aire enfrente: marcarlos sucios.
-        this.markNeighborsDirty(chunk.chunkA, chunk.chunkB);
       }
+      this.chunks.delete(k);
+      this.dirtyMeshes.delete(k);
+      this.markNeighborsDirty(chunk.chunkA, chunk.chunkB);
     }
 
-    // 3) Cargar hasta CHUNKS_PER_UPDATE por frame (los más cercanos primero).
+    // Carga: hasta CHUNKS_PER_UPDATE nuevos chunks por frame.
     let loaded = 0;
     for (const c of missing) {
       if (loaded >= CHUNKS_PER_UPDATE) break;
@@ -127,15 +129,28 @@ export class World {
       loaded++;
     }
 
-    // 4) Vaciar la cola de mallado. También limitamos para no bloquear el hilo.
+    // Mallado: solo chunks dentro de la zona de mallado. Si es la primera vez
+    // que se mallan (aún no hay entrada en `meshes`), esperamos a que los 8
+    // vecinos estén generados; después de meshed, la remalla puede hacerse
+    // aunque un vecino se descargue (para reexponer sus caras al aire).
     let meshed = 0;
-    for (const k of this.dirtyMeshes) {
-      if (meshed >= CHUNKS_PER_UPDATE * 3) break;
-      this.dirtyMeshes.delete(k);
-      const parts = k.split(',');
-      const ca = parseInt(parts[0], 10);
-      const cb = parseInt(parts[1], 10);
+    for (const k of Array.from(this.dirtyMeshes)) {
+      if (meshed >= MESHES_PER_UPDATE) break;
+      if (!wantedMesh.has(k)) {
+        const entry = this.meshes.get(k);
+        if (entry) {
+          this.disposeMeshes(entry);
+          this.meshes.delete(k);
+        }
+        this.dirtyMeshes.delete(k);
+        continue;
+      }
+      const [caStr, cbStr] = k.split(',');
+      const ca = parseInt(caStr, 10);
+      const cb = parseInt(cbStr, 10);
+      if (!this.meshes.has(k) && !this.allNeighborsLoaded(ca, cb)) continue;
       this.remeshChunk(ca, cb);
+      this.dirtyMeshes.delete(k);
       meshed++;
     }
   }
@@ -158,6 +173,16 @@ export class World {
         if (this.chunks.has(k)) this.dirtyMeshes.add(k);
       }
     }
+  }
+
+  private allNeighborsLoaded(ca: number, cb: number): boolean {
+    for (let dB = -1; dB <= 1; dB++) {
+      for (let dA = -1; dA <= 1; dA++) {
+        if (dA === 0 && dB === 0) continue;
+        if (!this.chunks.has(chunkKey(ca + dA, cb + dB))) return false;
+      }
+    }
+    return true;
   }
 
   private remeshChunk(ca: number, cb: number): void {
@@ -208,7 +233,6 @@ export class World {
     (this.waterMat as THREE.MeshBasicMaterial).wireframe = on;
   }
 
-  // Cambia la rejilla activa conservando `seed`. Descarga todo y vuelve a empezar.
   swapGrid(newGrid: Grid): void {
     this.grid = newGrid;
     for (const entry of this.meshes.values()) this.disposeMeshes(entry);
@@ -228,7 +252,6 @@ export class World {
     this.waterMat.dispose();
   }
 
-  // Utilidad de test/depuración.
   getBlock(worldA: number, worldB: number, y: number): Block {
     return this.lookupBlock(worldA, worldB, y);
   }

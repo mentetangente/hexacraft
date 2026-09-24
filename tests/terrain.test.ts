@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { HexGrid, SquareGrid } from '../src/grid';
-import { Terrain } from '../src/world/terrain';
+import { Terrain, generateChunk } from '../src/world/terrain';
+import { Block } from '../src/world/blocks';
 
 describe('Terrain', () => {
   it('la misma semilla da la misma altura en el mismo punto del mundo', () => {
@@ -29,6 +30,40 @@ describe('Terrain', () => {
     const h1 = t.heightAt(hex.center({ a: 0, b: 0 }).x, hex.center({ a: 0, b: 0 }).z);
     const h2 = t.heightAt(sq.center({ a: 0, b: 0 }).x, sq.center({ a: 0, b: 0 }).z);
     expect(h1).toBe(h2);
+  });
+
+  it('la lista de árboles aceptados es idéntica en las dos rejillas y cada punto tiene tronco en cellAt(punto)', () => {
+    const seed = 20260924;
+    const terrain = new Terrain(seed);
+    const hex = new HexGrid();
+    const sq = new SquareGrid();
+
+    // Rango de celdas gruesas -> aprox 40×40 unidades de mundo.
+    const trees = terrain.enumerateTrees(-4, -4, 4, 4);
+    expect(trees.length).toBeGreaterThan(0);
+    // enumerateTrees no toma rejilla: dos llamadas iguales devuelven lo mismo.
+    expect(terrain.enumerateTrees(-4, -4, 4, 4)).toEqual(trees);
+
+    // Distancia mínima entre árboles ≥ 3 (dos coarse cells cualesquiera).
+    for (let i = 0; i < trees.length; i++) {
+      for (let j = i + 1; j < trees.length; j++) {
+        const dx = trees[i].px - trees[j].px;
+        const dz = trees[i].pz - trees[j].pz;
+        const d = Math.hypot(dx, dz);
+        expect(d).toBeGreaterThanOrEqual(3);
+      }
+    }
+
+    // Cada árbol coloca su tronco en cellAt(punto) en ambas rejillas.
+    for (const t of trees) {
+      for (const grid of [hex, sq]) {
+        const treeCell = grid.cellAt({ x: t.px, z: t.pz });
+        const cl = grid.cellToChunk(treeCell);
+        const chunk = generateChunk(grid, terrain, cl.chunkA, cl.chunkB);
+        // El bloque justo encima del suelo (top + 1) debe ser Log.
+        expect(chunk.get(cl.localA, cl.localB, t.top + 1)).toBe(Block.Log);
+      }
+    }
   });
 
   it('las alturas son enteros en un rango razonable', () => {

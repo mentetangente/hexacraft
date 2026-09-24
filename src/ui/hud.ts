@@ -22,16 +22,20 @@ export class Hud {
   private cinema = false; // F1
 
   constructor(root: HTMLElement) {
+    // El contenedor (#hud) se dispone como flex column con gap; los hijos se
+    // apilan en el flujo, así el panel F3 nunca se solapa con el título aunque
+    // este se envuelva a varias líneas.
     this.container = root;
+
     this.title = document.createElement('div');
     this.title.style.cssText =
-      'position:absolute;top:8px;left:8px;font:14px ui-monospace,Consolas,monospace;color:#eee;background:rgba(0,0,0,0.4);padding:6px 10px;border-radius:4px;pointer-events:none;';
+      'font:14px ui-monospace,Consolas,monospace;color:#eee;background:rgba(0,0,0,0.5);padding:6px 10px;border-radius:4px;';
     this.title.textContent = 'Haz clic para jugar · G: cambiar rejilla · X: alambre · F3: info · F1: cine';
     this.container.appendChild(this.title);
 
     this.panelF3 = document.createElement('pre');
     this.panelF3.style.cssText =
-      'position:absolute;top:44px;left:8px;margin:0;font:12px ui-monospace,Consolas,monospace;color:#dcefff;background:rgba(0,0,0,0.55);padding:6px 10px;border-radius:4px;white-space:pre;pointer-events:none;';
+      'margin:0;font:12px ui-monospace,Consolas,monospace;color:#dcefff;background:rgba(0,0,0,0.55);padding:6px 10px;border-radius:4px;white-space:pre;';
     this.container.appendChild(this.panelF3);
   }
 

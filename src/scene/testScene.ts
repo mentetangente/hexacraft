@@ -1,7 +1,11 @@
 import * as THREE from 'three';
+import type { Point2 } from '../grid';
+import { HexGrid, SquareGrid } from '../grid';
 
-// Fase 0: cubo (12 triángulos) y prisma hexagonal (20 triángulos) del mismo volumen (1).
-// Los vértices se escriben a mano; en la fase 1 el prisma pasa a construirse con Grid.
+// Cubo (12 triángulos) y prisma hexagonal (20 triángulos) del mismo volumen (1),
+// construidos extruyendo la huella de cada rejilla en ±0.5 de altura.
+// Un polígono de n vértices CCW visto desde +Y da 2·(n-2) + 2·n = 4n - 4 triángulos
+// (tapa + tapa + laterales): n=4 → 12, n=6 → 20.
 
 type Vec3 = readonly [number, number, number];
 type RGB = readonly [number, number, number];
@@ -43,84 +47,45 @@ function trisToMesh(triangles: readonly Triangle[]): THREE.Mesh {
   return new THREE.Mesh(geom, mat);
 }
 
-function quad(a: Vec3, b: Vec3, c: Vec3, d: Vec3, color: RGB): [Triangle, Triangle] {
-  return [
-    { v0: a, v1: b, v2: c, color },
-    { v0: a, v1: c, v2: d, color },
-  ];
-}
+const TOP: RGB = [0.85, 0.85, 0.85];
+const BOT: RGB = [0.3, 0.3, 0.3];
+const SIDE: RGB = [0.55, 0.55, 0.55];
 
-function buildCube(): Prism {
-  const s = 0.5; // arista 1, volumen 1
-  const top: RGB = [0.85, 0.85, 0.85];
-  const bot: RGB = [0.3, 0.3, 0.3];
-  const side: RGB = [0.55, 0.55, 0.55];
-
-  const tris: Triangle[] = [
-    // Bottom (-Y)
-    ...quad([-s, -s, -s], [+s, -s, -s], [+s, -s, +s], [-s, -s, +s], bot),
-    // Top (+Y)
-    ...quad([-s, +s, +s], [+s, +s, +s], [+s, +s, -s], [-s, +s, -s], top),
-    // Front (+Z)
-    ...quad([-s, -s, +s], [+s, -s, +s], [+s, +s, +s], [-s, +s, +s], side),
-    // Back (-Z)
-    ...quad([+s, -s, -s], [-s, -s, -s], [-s, +s, -s], [+s, +s, -s], side),
-    // Right (+X)
-    ...quad([+s, -s, +s], [+s, -s, -s], [+s, +s, -s], [+s, +s, +s], side),
-    // Left (-X)
-    ...quad([-s, -s, -s], [-s, -s, +s], [-s, +s, +s], [-s, +s, -s], side),
-  ];
-
-  return { mesh: trisToMesh(tris), triangles: tris.length };
-}
-
-function buildHexPrism(): Prism {
-  // Área del hexágono = 1 → R = sqrt(2 / (3 * sqrt(3))).
-  const R = Math.sqrt(2 / (3 * Math.sqrt(3)));
-  const h = 0.5; // altura total 1
-
-  // 6 vértices en el plano XZ. Ángulo (30° - 60°·i) para que el orden 0..5
-  // sea antihorario visto desde +Y (vértice arriba, pointy-top).
-  const corners: Vec3[] = [];
-  for (let i = 0; i < 6; i++) {
-    const angle = ((30 - 60 * i) * Math.PI) / 180;
-    corners.push([R * Math.cos(angle), 0, R * Math.sin(angle)]);
-  }
-
-  const top: RGB = [0.85, 0.85, 0.85];
-  const bot: RGB = [0.3, 0.3, 0.3];
-  const side: RGB = [0.55, 0.55, 0.55];
+function buildPrism(footprint: readonly Point2[], halfHeight = 0.5): Prism {
+  const n = footprint.length;
+  const topOf = (p: Point2): Vec3 => [p.x, +halfHeight, p.z];
+  const botOf = (p: Point2): Vec3 => [p.x, -halfHeight, p.z];
 
   const tris: Triangle[] = [];
 
-  const topOf = (v: Vec3): Vec3 => [v[0], +h, v[2]];
-  const botOf = (v: Vec3): Vec3 => [v[0], -h, v[2]];
-
-  // Tapa superior: abanico de 4 triángulos desde el vértice 0, orden CCW visto desde +Y.
-  for (let i = 1; i < 5; i++) {
+  // Tapa superior: abanico desde v0 (normal +Y).
+  for (let i = 1; i < n - 1; i++) {
     tris.push({
-      v0: topOf(corners[0]),
-      v1: topOf(corners[i]),
-      v2: topOf(corners[i + 1]),
-      color: top,
+      v0: topOf(footprint[0]),
+      v1: topOf(footprint[i]),
+      v2: topOf(footprint[i + 1]),
+      color: TOP,
     });
   }
 
-  // Tapa inferior: mismo abanico pero orden invertido para que la normal apunte a -Y.
-  for (let i = 1; i < 5; i++) {
+  // Tapa inferior: abanico invertido (normal -Y).
+  for (let i = 1; i < n - 1; i++) {
     tris.push({
-      v0: botOf(corners[0]),
-      v1: botOf(corners[i + 1]),
-      v2: botOf(corners[i]),
-      color: bot,
+      v0: botOf(footprint[0]),
+      v1: botOf(footprint[i + 1]),
+      v2: botOf(footprint[i]),
+      color: BOT,
     });
   }
 
-  // 6 laterales, 2 triángulos cada uno (quad v_i, u_i, u_{i+1}, v_{i+1}).
-  for (let i = 0; i < 6; i++) {
-    const a = corners[i];
-    const b = corners[(i + 1) % 6];
-    tris.push(...quad(topOf(a), botOf(a), botOf(b), topOf(b), side));
+  // Laterales: por cada arista de la huella, un quad con normal hacia fuera.
+  for (let i = 0; i < n; i++) {
+    const a = footprint[i];
+    const b = footprint[(i + 1) % n];
+    tris.push(
+      { v0: topOf(a), v1: botOf(a), v2: botOf(b), color: SIDE },
+      { v0: topOf(a), v1: botOf(b), v2: topOf(b), color: SIDE },
+    );
   }
 
   return { mesh: trisToMesh(tris), triangles: tris.length };
@@ -134,12 +99,12 @@ export interface TestScene {
 }
 
 export function buildTestScene(): TestScene {
-  const c = buildCube();
-  const h = buildHexPrism();
+  const cube = buildPrism(new SquareGrid().footprintLocal());
+  const hex = buildPrism(new HexGrid().footprintLocal());
   return {
-    cube: c.mesh,
-    hexPrism: h.mesh,
-    cubeTriangles: c.triangles,
-    hexTriangles: h.triangles,
+    cube: cube.mesh,
+    hexPrism: hex.mesh,
+    cubeTriangles: cube.triangles,
+    hexTriangles: hex.triangles,
   };
 }

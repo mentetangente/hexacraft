@@ -4,13 +4,9 @@ import { chunkKey } from '../grid';
 import { Block } from './blocks';
 import { Chunk, CHUNK_HEIGHT } from './Chunk';
 import { Terrain, generateChunk } from './terrain';
-import {
-  BlockLookup,
-  ChunkMeshResult,
-  createOpaqueMaterial,
-  createWaterMaterial,
-  meshChunk,
-} from '../render/mesher';
+import { BlockLookup, ChunkMeshResult, meshChunk } from '../render/mesher';
+import { WorldMaterials, createWorldMaterials } from '../render/materials';
+import { createBlockTexture } from '../render/textures';
 
 interface ChunkMeshEntry {
   opaque?: THREE.Mesh;
@@ -47,8 +43,8 @@ export class World {
   private readonly dirtyMeshes = new Set<string>();
   private readonly terrain: Terrain;
 
-  private readonly opaqueMat = createOpaqueMaterial();
-  private readonly waterMat = createWaterMaterial();
+  private readonly texture: THREE.DataArrayTexture;
+  private readonly materials: WorldMaterials;
 
   private genTimes: number[] = [];
   private meshTimes: number[] = [];
@@ -59,6 +55,8 @@ export class World {
     public renderDistance = 64,
   ) {
     this.terrain = new Terrain(seed);
+    this.texture = createBlockTexture(seed);
+    this.materials = createWorldMaterials(this.texture);
     this.opaqueGroup.name = 'chunks-opaque';
     this.waterGroup.name = 'chunks-water';
   }
@@ -198,13 +196,13 @@ export class World {
 
     const entry: ChunkMeshEntry = {};
     if (result.opaque) {
-      const m = new THREE.Mesh(result.opaque, this.opaqueMat);
+      const m = new THREE.Mesh(result.opaque, this.materials.opaque);
       m.frustumCulled = true;
       this.opaqueGroup.add(m);
       entry.opaque = m;
     }
     if (result.water) {
-      const m = new THREE.Mesh(result.water, this.waterMat);
+      const m = new THREE.Mesh(result.water, this.materials.water);
       m.frustumCulled = true;
       this.waterGroup.add(m);
       entry.water = m;
@@ -229,8 +227,19 @@ export class World {
   }
 
   setWireframe(on: boolean): void {
-    (this.opaqueMat as THREE.MeshBasicMaterial).wireframe = on;
-    (this.waterMat as THREE.MeshBasicMaterial).wireframe = on;
+    this.materials.setWireframe(on);
+  }
+
+  setUseTexture(on: boolean): void {
+    this.materials.setUseTexture(on);
+  }
+
+  setFog(color: THREE.Color, near: number, far: number): void {
+    this.materials.setFog(color, near, far);
+  }
+
+  setRenderDistance(d: number): void {
+    this.renderDistance = d;
   }
 
   swapGrid(newGrid: Grid): void {
@@ -248,8 +257,8 @@ export class World {
     this.meshes.clear();
     this.chunks.clear();
     this.dirtyMeshes.clear();
-    this.opaqueMat.dispose();
-    this.waterMat.dispose();
+    this.materials.dispose();
+    this.texture.dispose();
   }
 
   getBlock(worldA: number, worldB: number, y: number): Block {

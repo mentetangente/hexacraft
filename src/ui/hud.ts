@@ -12,6 +12,8 @@ export interface HudInputs {
   chunksLoaded: number;
   meanGenMs: number;
   meanMeshMs: number;
+  renderDistance: number;
+  textured: boolean;
 }
 
 export class Hud {
@@ -30,7 +32,8 @@ export class Hud {
     this.title = document.createElement('div');
     this.title.style.cssText =
       'font:14px ui-monospace,Consolas,monospace;color:#eee;background:rgba(0,0,0,0.5);padding:6px 10px;border-radius:4px;';
-    this.title.textContent = 'Haz clic para jugar · G: cambiar rejilla · X: alambre · F3: info · F1: cine';
+    this.title.textContent =
+      'Haz clic para jugar · G: rejilla · T: texturas · X: alambre · +/−: distancia · F3: info · F1: cine';
     this.container.appendChild(this.title);
 
     this.panelF3 = document.createElement('pre');
@@ -56,13 +59,15 @@ export class Hud {
     const kind = x.grid.kind === 'hex' ? 'hexágonos' : 'cuadrados';
     const cellLabel = x.grid.kind === 'hex' ? `q=${x.cameraCell.a} r=${x.cameraCell.b}` : `x=${x.cameraCell.a} z=${x.cameraCell.b}`;
     this.panelF3.textContent = [
-      `fps            ${nf1.format(x.fps)}`,
-      `rejilla        ${kind}`,
-      `celda cámara   ${cellLabel} y=${nf0.format(x.cameraY)}`,
-      `triángulos     ${nf0.format(x.trianglesRendered)}`,
-      `chunks         ${nf0.format(x.chunksLoaded)}`,
-      `gen medio      ${nf1.format(x.meanGenMs)} ms`,
-      `mesh medio     ${nf1.format(x.meanMeshMs)} ms`,
+      `fps             ${nf1.format(x.fps)}`,
+      `rejilla         ${kind}`,
+      `celda cámara    ${cellLabel} y=${nf0.format(x.cameraY)}`,
+      `triángulos      ${nf0.format(x.trianglesRendered)}`,
+      `chunks          ${nf0.format(x.chunksLoaded)}`,
+      `distancia       ${nf0.format(x.renderDistance)} u`,
+      `texturas        ${x.textured ? 'sí' : 'no'}`,
+      `gen medio       ${nf1.format(x.meanGenMs)} ms`,
+      `mesh medio      ${nf1.format(x.meanMeshMs)} ms`,
     ].join('\n');
   }
 }

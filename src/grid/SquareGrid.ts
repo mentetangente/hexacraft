@@ -1,12 +1,21 @@
-import type { Cell, Grid, Point2 } from './Grid';
-import { makeCell, makePoint } from './Grid';
+import type { Cell, ChunkLocal, Grid, Point2 } from './Grid';
+import {
+  CHUNK_SIZE,
+  cellKey,
+  cellToChunkLocal,
+  chunkLocalToCell,
+  makeCell,
+  makePoint,
+} from './Grid';
 
 // Solo 4 vecinos: las diagonales no cuentan a propósito (parte del contraste del vídeo).
+// El orden se elige para que DIRS[i] sea el vecino que hay al otro lado de la arista i
+// de footprintLocal(): el mesher lo aprovecha para saber qué cara laterales culling.
 const DIRS: readonly Cell[] = [
-  { a: +1, b: 0 },
-  { a: -1, b: 0 },
-  { a: 0, b: +1 },
-  { a: 0, b: -1 },
+  { a: 0, b: -1 }, // arista 0: (0.5,-0.5)→(-0.5,-0.5) mira a -Z
+  { a: -1, b: 0 }, // arista 1: (-0.5,-0.5)→(-0.5,+0.5) mira a -X
+  { a: 0, b: +1 }, // arista 2: (-0.5,+0.5)→(+0.5,+0.5) mira a +Z
+  { a: +1, b: 0 }, // arista 3: (+0.5,+0.5)→(+0.5,-0.5) mira a +X
 ];
 
 export class SquareGrid implements Grid {
@@ -23,6 +32,24 @@ export class SquareGrid implements Grid {
 
   equals(a: Cell, b: Cell): boolean {
     return a.a === b.a && a.b === b.b;
+  }
+
+  key(c: Cell): string {
+    return cellKey(c);
+  }
+
+  cellToChunk(c: Cell): ChunkLocal {
+    return cellToChunkLocal(c);
+  }
+
+  chunkToCell(chunkA: number, chunkB: number, localA: number, localB: number): Cell {
+    return chunkLocalToCell(chunkA, chunkB, localA, localB);
+  }
+
+  chunkCenter(chunkA: number, chunkB: number): Point2 {
+    const midA = chunkA * CHUNK_SIZE + (CHUNK_SIZE - 1) / 2;
+    const midB = chunkB * CHUNK_SIZE + (CHUNK_SIZE - 1) / 2;
+    return this.center({ a: midA, b: midB });
   }
 
   neighborDirections(): readonly Cell[] {

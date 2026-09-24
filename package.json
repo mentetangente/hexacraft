@@ -12,6 +12,7 @@
     "lint": "eslint ."
   },
   "dependencies": {
+    "simplex-noise": "^4.0.3",
     "three": "^0.186.0"
   },
   "devDependencies": {

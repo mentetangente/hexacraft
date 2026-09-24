@@ -11,6 +11,16 @@ export interface Point2 {
   readonly z: number;
 }
 
+// Tamaño horizontal de un chunk (celdas por lado); altura en world/Chunk.ts.
+export const CHUNK_SIZE = 16;
+
+export interface ChunkLocal {
+  readonly chunkA: number;
+  readonly chunkB: number;
+  readonly localA: number;
+  readonly localB: number;
+}
+
 export interface Grid {
   readonly kind: 'hex' | 'square';
   readonly neighborCount: 6 | 4;
@@ -18,6 +28,9 @@ export interface Grid {
   center(cell: Cell): Point2;
   cellAt(point: Point2): Cell;
   equals(a: Cell, b: Cell): boolean;
+
+  // Clave estable para usar celdas como llaves en Map/Set.
+  key(cell: Cell): string;
 
   neighborDirections(): readonly Cell[];
   neighbors(cell: Cell): Cell[];
@@ -41,6 +54,13 @@ export interface Grid {
   // Celdas cuyo centro está a distancia euclídea ≤ radius del punto dado (en unidades
   // de mundo). Utilidad para la torre redonda y otras formas circulares (fase 7).
   cellsInCircle(center: Point2, radius: number): Cell[];
+
+  // Celda ↔ (chunk, posición local). Funciona con coordenadas negativas.
+  cellToChunk(cell: Cell): ChunkLocal;
+  chunkToCell(chunkA: number, chunkB: number, localA: number, localB: number): Cell;
+  // Centro geométrico del paralelogramo (hex) o cuadrado (sq) que ocupa el chunk
+  // en coordenadas de mundo. Se usa para decidir carga/descarga por distancia.
+  chunkCenter(chunkA: number, chunkB: number): Point2;
 }
 
 // Normaliza -0 a +0. Uso: floats en Point2 y enteros en Cell.
@@ -64,4 +84,35 @@ export function signedAreaXZ(pts: readonly Point2[]): number {
     sum += a.x * b.z - b.x * a.z;
   }
   return -sum / 2;
+}
+
+// Helpers de chunk (mismos para ambas rejillas: la codificación (a,b) es común).
+
+export function cellKey(c: Cell): string {
+  return `${c.a},${c.b}`;
+}
+
+export function chunkKey(chunkA: number, chunkB: number): string {
+  return `${chunkA},${chunkB}`;
+}
+
+const floorDiv = (a: number, n: number): number => Math.floor(a / n);
+const posMod = (a: number, n: number): number => ((a % n) + n) % n;
+
+export function cellToChunkLocal(c: Cell): ChunkLocal {
+  return {
+    chunkA: floorDiv(c.a, CHUNK_SIZE),
+    chunkB: floorDiv(c.b, CHUNK_SIZE),
+    localA: posMod(c.a, CHUNK_SIZE),
+    localB: posMod(c.b, CHUNK_SIZE),
+  };
+}
+
+export function chunkLocalToCell(
+  chunkA: number,
+  chunkB: number,
+  localA: number,
+  localB: number,
+): Cell {
+  return makeCell(chunkA * CHUNK_SIZE + localA, chunkB * CHUNK_SIZE + localB);
 }

@@ -48,6 +48,26 @@ describe.each(cases)('%s — invariantes comunes', (_name, grid) => {
     expect(area).toBeCloseTo(1, 10);
   });
 
+  it('tres vértices consecutivos de la tapa superior tienen normal con Y > 0', () => {
+    // Prueba directa de la convención que usará el mesher: si construimos el
+    // triángulo (a, b, c) del abanico de la tapa en y = 1, la normal
+    // (b - a) × (c - a) debe apuntar hacia +Y.
+    const fp = grid.footprintLocal();
+    for (let i = 0; i < fp.length; i++) {
+      const a = { x: fp[i].x, y: 1, z: fp[i].z };
+      const b = { x: fp[(i + 1) % fp.length].x, y: 1, z: fp[(i + 1) % fp.length].z };
+      const c = { x: fp[(i + 2) % fp.length].x, y: 1, z: fp[(i + 2) % fp.length].z };
+      // Los tres puntos están a la misma altura y = 1, así que la componente Y
+      // del producto vectorial se reduce a (ez * fx - ex * fz).
+      const ex = b.x - a.x;
+      const ez = b.z - a.z;
+      const fx = c.x - a.x;
+      const fz = c.z - a.z;
+      const ny = ez * fx - ex * fz;
+      expect(ny).toBeGreaterThan(0);
+    }
+  });
+
   it('footprint(c) coincide con footprintLocal trasladado al centro', () => {
     const local = grid.footprintLocal();
     for (const c of someCells) {

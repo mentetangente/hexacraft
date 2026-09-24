@@ -1,35 +1,54 @@
 import * as THREE from 'three';
-import { buildTestScene } from './scene/testScene';
+import { HexGrid, SquareGrid } from './grid';
+import { World } from './world/World';
+import { FlyControls } from './player/controls';
+import { Hud } from './ui/hud';
+
+const SEED = 1234;
+const INITIAL_POS = new THREE.Vector3(0, 40, 20);
 
 const canvas = document.createElement('canvas');
+canvas.style.cssText = 'display:block;width:100%;height:100%;cursor:crosshair;';
 document.body.appendChild(canvas);
 
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
 renderer.setPixelRatio(window.devicePixelRatio);
 renderer.setSize(window.innerWidth, window.innerHeight);
-renderer.setClearColor(0x000000);
+renderer.setClearColor(0x88b4e0);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(50, window.innerWidth / window.innerHeight, 0.1, 100);
+const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 500);
+camera.position.copy(INITIAL_POS);
 
-const { cube, hexPrism, cubeTriangles, hexTriangles } = buildTestScene();
-cube.position.x = -1.2;
-hexPrism.position.x = 1.2;
-scene.add(cube);
-scene.add(hexPrism);
+const hudRoot = document.getElementById('hud');
+if (!hudRoot) throw new Error('#hud no encontrado en index.html');
+const hud = new Hud(hudRoot);
 
-const key = new THREE.DirectionalLight(0xffffff, 1.1);
-key.position.set(3, 5, 2);
-scene.add(key);
-scene.add(new THREE.AmbientLight(0xffffff, 0.35));
+const world = new World(new HexGrid(), SEED);
+scene.add(world.opaqueGroup);
+scene.add(world.waterGroup);
 
-const hud = document.getElementById('hud');
-if (hud) {
-  const nf = new Intl.NumberFormat('es-ES');
-  hud.textContent =
-    `Cubo: ${nf.format(cubeTriangles)} triángulos` +
-    `  ·  Prisma hex: ${nf.format(hexTriangles)} triángulos`;
-}
+const controls = new FlyControls(camera, canvas);
+
+let wireframe = false;
+
+window.addEventListener('keydown', (e) => {
+  if (e.code === 'KeyG') {
+    // Cambiar de rejilla conservando posición y orientación.
+    const newGrid = world.grid.kind === 'hex' ? new SquareGrid() : new HexGrid();
+    world.swapGrid(newGrid);
+    // El estado en la URL queda para la fase 5.
+  } else if (e.code === 'KeyX') {
+    wireframe = !wireframe;
+    world.setWireframe(wireframe);
+  } else if (e.code === 'F3') {
+    e.preventDefault();
+    hud.toggleF3();
+  } else if (e.code === 'F1') {
+    e.preventDefault();
+    hud.toggleCinema();
+  }
+});
 
 window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
@@ -37,20 +56,41 @@ window.addEventListener('resize', () => {
   camera.updateProjectionMatrix();
 });
 
+// Estimador simple de fps con ventana móvil.
+let fps = 0;
+const frameSamples: number[] = [];
+const FRAME_WINDOW = 60;
+
 const clock = new THREE.Clock();
 
 function tick(): void {
-  const t = clock.getElapsedTime();
+  const dt = Math.min(clock.getDelta(), 0.1);
+  const frameStart = performance.now();
 
-  cube.rotation.y = t * 0.4;
-  hexPrism.rotation.y = t * 0.4;
-
-  const radius = 4.2;
-  const orbitSpeed = 0.25;
-  camera.position.set(Math.sin(t * orbitSpeed) * radius, 2.2, Math.cos(t * orbitSpeed) * radius);
-  camera.lookAt(0, 0, 0);
+  controls.update(dt);
+  world.update(camera.position.x, camera.position.z);
 
   renderer.render(scene, camera);
+
+  const cameraCell = world.grid.cellAt({ x: camera.position.x, z: camera.position.z });
+  const s = world.stats;
+  const now = performance.now();
+  frameSamples.push(now - frameStart);
+  if (frameSamples.length > FRAME_WINDOW) frameSamples.shift();
+  const avgMs = frameSamples.reduce((a, b) => a + b, 0) / frameSamples.length;
+  fps = avgMs > 0 ? 1000 / avgMs : 0;
+
+  hud.update({
+    fps,
+    grid: world.grid,
+    cameraCell: { a: cameraCell.a, b: cameraCell.b },
+    cameraY: camera.position.y,
+    trianglesRendered: renderer.info.render.triangles,
+    chunksLoaded: s.chunksLoaded,
+    meanGenMs: s.meanGenMs,
+    meanMeshMs: s.meanMeshMs,
+  });
+
   requestAnimationFrame(tick);
 }
 tick();

@@ -1,5 +1,12 @@
-import type { Cell, Grid, Point2 } from './Grid';
-import { makeCell, makePoint } from './Grid';
+import type { Cell, ChunkLocal, Grid, Point2 } from './Grid';
+import {
+  CHUNK_SIZE,
+  cellKey,
+  cellToChunkLocal,
+  chunkLocalToCell,
+  makeCell,
+  makePoint,
+} from './Grid';
 
 // Circumradio (= lado) para que el hexágono tenga área 1.
 // Área regular = 3·√3/2 · R²  →  R = √(2 / (3·√3)) ≈ 0.6204.
@@ -51,6 +58,25 @@ export class HexGrid implements Grid {
 
   equals(a: Cell, b: Cell): boolean {
     return a.a === b.a && a.b === b.b;
+  }
+
+  key(c: Cell): string {
+    return cellKey(c);
+  }
+
+  cellToChunk(c: Cell): ChunkLocal {
+    return cellToChunkLocal(c);
+  }
+
+  chunkToCell(chunkA: number, chunkB: number, localA: number, localB: number): Cell {
+    return chunkLocalToCell(chunkA, chunkB, localA, localB);
+  }
+
+  chunkCenter(chunkA: number, chunkB: number): Point2 {
+    const midA = chunkA * CHUNK_SIZE + (CHUNK_SIZE - 1) / 2;
+    const midB = chunkB * CHUNK_SIZE + (CHUNK_SIZE - 1) / 2;
+    // Se usa center() aunque los argumentos no sean enteros; la fórmula es lineal.
+    return this.center({ a: midA, b: midB });
   }
 
   neighborDirections(): readonly Cell[] {

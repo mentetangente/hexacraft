@@ -127,6 +127,15 @@ export class World {
       loaded++;
     }
 
+    // Red de seguridad: cualquier chunk que esté en la zona de mallado y esté
+    // generado pero sin malla debe estar en la cola. Cubre el caso de un chunk
+    // que estuvo en el anillo (generado, no mallado) y al que el jugador se
+    // acerca, y el de un chunk cuya malla se descartó al alejarse y ahora
+    // vuelve a estar en rango.
+    for (const k of wantedMesh) {
+      if (this.chunks.has(k) && !this.meshes.has(k)) this.dirtyMeshes.add(k);
+    }
+
     // Mallado: solo chunks dentro de la zona de mallado. Si es la primera vez
     // que se mallan (aún no hay entrada en `meshes`), esperamos a que los 8
     // vecinos estén generados; después de meshed, la remalla puede hacerse

@@ -120,11 +120,14 @@ export class Player {
     this.input.forward = fwd;
     this.input.strafe = str;
 
+    // Shift hace doble uso según el modo: sprint andando; bajar en vuelo. Se
+    // evita Ctrl porque Ctrl+W cierra la pestaña en el navegador.
+    const shift = this.keys.has('ShiftLeft') || this.keys.has('ShiftRight');
     let vert = 0;
     if (this.keys.has('Space')) vert += 1;
-    if (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) vert -= 1;
+    if (shift && this.state.mode === 'fly') vert -= 1;
     this.input.vertical = vert;
 
-    this.input.sprint = this.keys.has('ControlLeft') || this.keys.has('ControlRight');
+    this.input.sprint = shift && this.state.mode === 'walk';
   }
 }

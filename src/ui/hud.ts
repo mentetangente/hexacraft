@@ -38,7 +38,7 @@ export class Hud {
     this.title.style.cssText =
       'font:14px ui-monospace,Consolas,monospace;color:#eee;background:rgba(0,0,0,0.5);padding:6px 10px;border-radius:4px;';
     this.title.textContent =
-      'Clic para jugar · WASD · Espacio · Shift · Ctrl sprint · F vuelo · G rejilla · T texturas · X alambre · +/− distancia · F3 · F1';
+      'Clic para jugar · WASD · Espacio · Shift sprint / bajar · F vuelo · G rejilla · T texturas · X alambre · +/− distancia · F3 · F1';
     this.container.appendChild(this.title);
 
     this.panelF3 = document.createElement('pre');

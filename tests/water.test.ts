@@ -143,6 +143,33 @@ describe.each(grids)('%s — WaterSim', (_name, makeGrid, discSize) => {
     }
   });
 
+  it('una fuente flotando cae recta y solo se extiende al tocar sólido', () => {
+    const grid = makeGrid();
+    const world = new MockWaterWorld();
+    // Suelo lejos: fuente en y=25, aire de y=16 a y=24, sólido en y=15.
+    world.fillLayer(15, 10);
+    world.set(0, 0, 25, Block.Water);
+    const sim = new WaterSim(grid, world);
+    sim.activateNeighbors(0, 0, 25);
+
+    runTicks(sim, 30);
+
+    // Columna cayendo (y=17..25): solo (0, 0) es agua; los vecinos horizontales
+    // siguen aire (el agua NO se extiende mientras cae).
+    for (let y = 17; y <= 25; y++) {
+      expect(isWater(world.getBlock(0, 0, y))).toBe(true);
+      for (const dir of grid.neighborDirections()) {
+        expect(isWater(world.getBlock(dir.a, dir.b, y))).toBe(false);
+      }
+    }
+    // Al tocar el sólido (y=16 es la primera capa con suelo sólido debajo),
+    // el agua sí se extiende: los 6/4 vecinos horizontales son agua.
+    expect(isWater(world.getBlock(0, 0, 16))).toBe(true);
+    for (const dir of grid.neighborDirections()) {
+      expect(isWater(world.getBlock(dir.a, dir.b, 16))).toBe(true);
+    }
+  });
+
   it('el agua cruza bordes de chunk sin cortarse', () => {
     const grid = makeGrid();
     // Simulamos dos chunks cargados adyacentes en +A.

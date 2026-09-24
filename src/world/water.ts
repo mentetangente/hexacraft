@@ -133,11 +133,12 @@ export class WaterSim {
       const nb = b + d.b;
       const neighbor = this.sampler.getBlock(na, nb, y);
       if (!isWater(neighbor)) continue;
-      // El vecino solo derrama horizontalmente si está asentado (debajo tiene
-      // sólido u otra agua). Si el vecino está cayendo (debajo aire), no
-      // extiende: así "el agua cae antes de extenderse".
+      // El vecino solo derrama horizontalmente si tiene **sólido** justo
+      // debajo. Si su abajo es aire (columna cayendo) u otra agua (fuente
+      // flotando sobre agua) no se extiende: primero cae. Así una fuente
+      // flotando cae recta y solo se abre en abanico al tocar suelo sólido.
       const nBelow = this.sampler.getBlock(na, nb, y - 1);
-      if (!isSolid(nBelow) && !isWater(nBelow)) continue;
+      if (!isSolid(nBelow)) continue;
       const L = waterLevel(neighbor);
       if (L - 1 > maxLevel) maxLevel = L - 1;
     }

@@ -14,6 +14,11 @@ export interface HudInputs {
   meanMeshMs: number;
   renderDistance: number;
   textured: boolean;
+  playerPos: { x: number; y: number; z: number };
+  playerVel: { x: number; y: number; z: number };
+  onGround: boolean;
+  inWater: boolean;
+  mode: 'walk' | 'fly';
 }
 
 export class Hud {
@@ -33,7 +38,7 @@ export class Hud {
     this.title.style.cssText =
       'font:14px ui-monospace,Consolas,monospace;color:#eee;background:rgba(0,0,0,0.5);padding:6px 10px;border-radius:4px;';
     this.title.textContent =
-      'Haz clic para jugar · G: rejilla · T: texturas · X: alambre · +/−: distancia · F3: info · F1: cine';
+      'Clic para jugar · WASD · Espacio · Shift · Ctrl sprint · F vuelo · G rejilla · T texturas · X alambre · +/− distancia · F3 · F1';
     this.container.appendChild(this.title);
 
     this.panelF3 = document.createElement('pre');
@@ -58,10 +63,17 @@ export class Hud {
     if (!this.visible || this.cinema) return;
     const kind = x.grid.kind === 'hex' ? 'hexágonos' : 'cuadrados';
     const cellLabel = x.grid.kind === 'hex' ? `q=${x.cameraCell.a} r=${x.cameraCell.b}` : `x=${x.cameraCell.a} z=${x.cameraCell.b}`;
+    const speed = Math.hypot(x.playerVel.x, x.playerVel.z);
     this.panelF3.textContent = [
       `fps             ${nf1.format(x.fps)}`,
       `rejilla         ${kind}`,
+      `modo            ${x.mode === 'walk' ? 'andar' : 'vuelo'}`,
       `celda cámara    ${cellLabel} y=${nf0.format(x.cameraY)}`,
+      `posición        (${nf1.format(x.playerPos.x)}, ${nf1.format(x.playerPos.y)}, ${nf1.format(x.playerPos.z)})`,
+      `vel horizontal  ${nf1.format(speed)} u/s`,
+      `vel vertical    ${nf1.format(x.playerVel.y)} u/s`,
+      `en suelo        ${x.onGround ? 'sí' : 'no'}`,
+      `en agua         ${x.inWater ? 'sí' : 'no'}`,
       `triángulos      ${nf0.format(x.trianglesRendered)}`,
       `chunks          ${nf0.format(x.chunksLoaded)}`,
       `distancia       ${nf0.format(x.renderDistance)} u`,

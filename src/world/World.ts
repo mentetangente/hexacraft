@@ -264,6 +264,11 @@ export class World {
   getBlock(worldA: number, worldB: number, y: number): Block {
     return this.lookupBlock(worldA, worldB, y);
   }
+
+  hasChunkAt(worldA: number, worldB: number): boolean {
+    const cl = this.grid.cellToChunk({ a: worldA, b: worldB });
+    return this.chunks.has(chunkKey(cl.chunkA, cl.chunkB));
+  }
 }
 
 function mean(arr: number[]): number {

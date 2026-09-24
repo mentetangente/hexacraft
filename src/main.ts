@@ -1,11 +1,10 @@
 import * as THREE from 'three';
 import { HexGrid, SquareGrid } from './grid';
 import { World } from './world/World';
-import { FlyControls } from './player/controls';
+import { Player } from './player/controls';
 import { Hud } from './ui/hud';
 
 const SEED = 1234;
-const INITIAL_POS = new THREE.Vector3(0, 40, 20);
 const SKY_COLOR = 0x88b4e0;
 const MIN_DISTANCE = 16;
 const MAX_DISTANCE = 256;
@@ -23,13 +22,11 @@ renderer.setClearColor(SKY_COLOR);
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 800);
-camera.position.copy(INITIAL_POS);
 
 const hudRoot = document.getElementById('hud');
 if (!hudRoot) throw new Error('#hud no encontrado en index.html');
 const hud = new Hud(hudRoot);
 
-// Distancia inicial desde ?distancia=N (con clamp) o valor por defecto.
 function parseDistanceFromURL(): number {
   const raw = new URLSearchParams(window.location.search).get('distancia');
   if (raw === null) return DEFAULT_DISTANCE;
@@ -44,18 +41,15 @@ const world = new World(new HexGrid(), SEED, renderDistance);
 scene.add(world.opaqueGroup);
 scene.add(world.waterGroup);
 
-// Niebla lineal: cierra justo en la distancia de render.
 const fogColor = new THREE.Color(SKY_COLOR);
 function applyFog(): void {
   world.setFog(fogColor, renderDistance * 0.55, renderDistance);
-  // Ajustar `far` de la cámara para que no pase de la distancia de render + un
-  // par de chunks (evita clipping justo antes de la niebla).
   camera.far = renderDistance + 40;
   camera.updateProjectionMatrix();
 }
 applyFog();
 
-const controls = new FlyControls(camera, canvas);
+const player = new Player(camera, canvas, world.grid, world);
 
 let wireframe = false;
 let textured = true;
@@ -64,6 +58,7 @@ window.addEventListener('keydown', (e) => {
   if (e.code === 'KeyG') {
     const newGrid = world.grid.kind === 'hex' ? new SquareGrid() : new HexGrid();
     world.swapGrid(newGrid);
+    player.swapGrid(newGrid);
   } else if (e.code === 'KeyT') {
     textured = !textured;
     world.setUseTexture(textured);
@@ -77,7 +72,6 @@ window.addEventListener('keydown', (e) => {
     e.preventDefault();
     hud.toggleCinema();
   } else if (e.code === 'Equal' || e.code === 'NumpadAdd') {
-    // '+' (con o sin Shift en teclados típicos).
     renderDistance = Math.min(MAX_DISTANCE, renderDistance + DISTANCE_STEP);
     world.setRenderDistance(renderDistance);
     applyFog();
@@ -101,15 +95,17 @@ const FRAME_WINDOW = 60;
 const clock = new THREE.Clock();
 
 function tick(): void {
-  const dt = Math.min(clock.getDelta(), 0.1);
+  const dt = clock.getDelta();
   const frameStart = performance.now();
 
-  controls.update(dt);
+  // Actualiza el mundo primero para tener chunks cargados antes de la física.
   world.update(camera.position.x, camera.position.z);
+  player.update(dt);
   renderer.render(scene, camera);
 
   const cameraCell = world.grid.cellAt({ x: camera.position.x, z: camera.position.z });
   const s = world.stats;
+  const ps = player.state;
   const now = performance.now();
   frameSamples.push(now - frameStart);
   if (frameSamples.length > FRAME_WINDOW) frameSamples.shift();
@@ -127,6 +123,11 @@ function tick(): void {
     meanMeshMs: s.meanMeshMs,
     renderDistance,
     textured,
+    playerPos: ps.position,
+    playerVel: ps.velocity,
+    onGround: ps.onGround,
+    inWater: ps.inWater,
+    mode: ps.mode,
   });
 
   requestAnimationFrame(tick);

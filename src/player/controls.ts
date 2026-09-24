@@ -1,99 +1,130 @@
 import * as THREE from 'three';
+import type { Grid } from '../grid';
+import type { BlockSampler, InputIntent, PlayerState } from './physics';
+import { createInput, createPlayer, physicsStep, placeOnSurface, snapOutOfSolid } from './physics';
+import { DEFAULT_PLAYER_CONFIG, PlayerConfig } from './config';
 
-// Cámara libre con Pointer Lock. Fase 2a: sin gravedad ni colisiones.
-// Movimiento en el plano XZ con WASD; Espacio sube; Shift baja.
-
-const SPEED = 8; // unidades/segundo
 const MOUSE_SENSITIVITY = 0.0022;
 const MIN_PITCH = -Math.PI / 2 + 0.01;
 const MAX_PITCH = Math.PI / 2 - 0.01;
 
-export class FlyControls {
-  private yaw = 0;
-  private pitch = 0;
-  private readonly keys = new Set<string>();
+// Junta física + input DOM: la ventana llama update(dt) cada frame y controls
+// lleva el acumulador de paso fijo, dispara los toggles y sincroniza la cámara.
+export class Player {
+  readonly state: PlayerState = createPlayer();
+  private readonly input: InputIntent = createInput();
+  private acc = 0;
   private locked = false;
+  private readonly keys = new Set<string>();
   private readonly euler = new THREE.Euler(0, 0, 0, 'YXZ');
+  private placed = false;
 
   constructor(
-    public readonly camera: THREE.PerspectiveCamera,
+    private readonly camera: THREE.PerspectiveCamera,
     domElement: HTMLElement,
+    private grid: Grid,
+    private sampler: BlockSampler,
+    private readonly cfg: PlayerConfig = DEFAULT_PLAYER_CONFIG,
   ) {
-    // Estado inicial: mirando a -Z, y ligeramente hacia abajo.
-    this.pitch = -0.15;
+    // Aparición inicial: al lado del origen, encima del suelo. Se ubica en el
+    // primer tick en que exista chunk cargado ahí (ver update()).
+    this.state.position.x = 0;
+    this.state.position.z = 0;
+    this.state.position.y = 60;
+    this.state.pitch = -0.15;
 
     domElement.addEventListener('click', () => {
       if (!this.locked) domElement.requestPointerLock();
     });
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === domElement;
+      if (!this.locked) this.keys.clear();
     });
     document.addEventListener('mousemove', (e) => {
       if (!this.locked) return;
-      this.yaw -= e.movementX * MOUSE_SENSITIVITY;
-      this.pitch -= e.movementY * MOUSE_SENSITIVITY;
-      if (this.pitch < MIN_PITCH) this.pitch = MIN_PITCH;
-      if (this.pitch > MAX_PITCH) this.pitch = MAX_PITCH;
+      this.state.yaw -= e.movementX * MOUSE_SENSITIVITY;
+      this.state.pitch -= e.movementY * MOUSE_SENSITIVITY;
+      if (this.state.pitch < MIN_PITCH) this.state.pitch = MIN_PITCH;
+      if (this.state.pitch > MAX_PITCH) this.state.pitch = MAX_PITCH;
     });
-
     window.addEventListener('keydown', (e) => {
+      // Toggle de vuelo es one-shot; el resto es estado.
+      if (e.code === 'KeyF') {
+        this.input.toggleFly = true;
+        return;
+      }
       this.keys.add(e.code);
     });
     window.addEventListener('keyup', (e) => {
       this.keys.delete(e.code);
     });
-    // Al perder el foco (pausa en el navegador, tabout) limpiamos teclas.
     window.addEventListener('blur', () => this.keys.clear());
+  }
+
+  swapGrid(newGrid: Grid): void {
+    this.grid = newGrid;
+    // Si en la nueva rejilla el jugador quedó dentro de un bloque, sube.
+    snapOutOfSolid(this.state, this.grid, this.sampler, this.cfg);
+    // Fuerza re-ubicación si al cambiar de rejilla el chunk aún no existe.
+    this.placed = false;
+  }
+
+  update(dtFrame: number): void {
+    // Aparición inicial diferida hasta que el chunk esté cargado.
+    if (!this.placed) {
+      if (this.sampler.hasChunkAt(0, 0)) {
+        placeOnSurface(this.state, this.grid, this.sampler, this.cfg);
+        this.placed = true;
+      } else {
+        return;
+      }
+    }
+
+    // Refrescar intent de entrada desde el estado de teclas.
+    this.readKeys();
+
+    // Acumulador de paso fijo, con dt máximo por frame para no atravesar el
+    // suelo al volver de otra pestaña.
+    this.acc += Math.min(dtFrame, this.cfg.maxFrameDt);
+    let steps = 0;
+    while (this.acc >= this.cfg.fixedDt && steps < 8) {
+      physicsStep(this.state, this.input, this.grid, this.sampler, this.cfg, this.cfg.fixedDt);
+      this.acc -= this.cfg.fixedDt;
+      steps++;
+    }
+    // Si aún queda tiempo (dt muy grande), descartamos el resto para evitar
+    // spiral of death: preferimos un pequeño retardo visual a bloquear el hilo.
+    if (this.acc >= this.cfg.fixedDt) this.acc = 0;
+
+    // Sincronizar cámara: ojos = pies + eyeHeight.
+    this.euler.set(this.state.pitch, this.state.yaw, 0, 'YXZ');
+    this.camera.quaternion.setFromEuler(this.euler);
+    this.camera.position.set(
+      this.state.position.x,
+      this.state.position.y + this.cfg.eyeHeight,
+      this.state.position.z,
+    );
   }
 
   isLocked(): boolean {
     return this.locked;
   }
 
-  // Devuelve la celda de la rejilla activa; conveniente para el HUD.
-  getPosition(): THREE.Vector3 {
-    return this.camera.position.clone();
-  }
+  private readKeys(): void {
+    let fwd = 0;
+    let str = 0;
+    if (this.keys.has('KeyW')) fwd += 1;
+    if (this.keys.has('KeyS')) fwd -= 1;
+    if (this.keys.has('KeyD')) str += 1;
+    if (this.keys.has('KeyA')) str -= 1;
+    this.input.forward = fwd;
+    this.input.strafe = str;
 
-  update(dt: number): void {
-    this.euler.set(this.pitch, this.yaw, 0, 'YXZ');
-    this.camera.quaternion.setFromEuler(this.euler);
+    let vert = 0;
+    if (this.keys.has('Space')) vert += 1;
+    if (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) vert -= 1;
+    this.input.vertical = vert;
 
-    if (!this.locked) return;
-
-    // Movimiento horizontal según yaw (ignorando pitch), vertical por Espacio/Shift.
-    const forward = new THREE.Vector3(-Math.sin(this.yaw), 0, -Math.cos(this.yaw));
-    const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));
-
-    let vx = 0;
-    let vy = 0;
-    let vz = 0;
-    if (this.keys.has('KeyW')) {
-      vx += forward.x;
-      vz += forward.z;
-    }
-    if (this.keys.has('KeyS')) {
-      vx -= forward.x;
-      vz -= forward.z;
-    }
-    if (this.keys.has('KeyD')) {
-      vx += right.x;
-      vz += right.z;
-    }
-    if (this.keys.has('KeyA')) {
-      vx -= right.x;
-      vz -= right.z;
-    }
-    if (this.keys.has('Space')) vy += 1;
-    if (this.keys.has('ShiftLeft') || this.keys.has('ShiftRight')) vy -= 1;
-
-    const len = Math.hypot(vx, vz);
-    if (len > 0) {
-      vx /= len;
-      vz /= len;
-    }
-    this.camera.position.x += vx * SPEED * dt;
-    this.camera.position.y += vy * SPEED * dt;
-    this.camera.position.z += vz * SPEED * dt;
+    this.input.sprint = this.keys.has('ControlLeft') || this.keys.has('ControlRight');
   }
 }

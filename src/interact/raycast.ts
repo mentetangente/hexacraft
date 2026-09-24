@@ -1,5 +1,5 @@
 import type { Cell, Grid } from '../grid';
-import { Block, isSolid } from '../world/blocks';
+import { Block, stopsRay as blockStopsRay } from '../world/blocks';
 import { CHUNK_HEIGHT } from '../world/Chunk';
 
 // Recorrido exacto de un rayo por la rejilla, sin three.js. Reemplaza el
@@ -38,9 +38,7 @@ const ADVANCE_EPS = 1e-6;
 
 // Detiene el rayo cualquier bloque marcado como sólido (piedra, cristal, etc.).
 // El agua no es sólida en blocks.ts, así que no bloquea el rayo.
-function stopsRay(b: Block): boolean {
-  return isSolid(b);
-}
+const stopsRay = blockStopsRay;
 
 export function raycast(
   grid: Grid,

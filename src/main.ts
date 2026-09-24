@@ -19,7 +19,10 @@ import {
   pickImportFile,
 } from './state/exportImport';
 import { WorldEdits } from './interact/edits';
-import { Block } from './world/blocks';
+import { UndoStack, applyPlan, revertEntry } from './presets/build';
+import { PresetName, buildPreset } from './presets/presets';
+import { planTranslate } from './presets/translate';
+import { PresetMenu } from './ui/presetMenu';
 import { SplitView } from './render/splitView';
 import { Benchmark, parseBenchmark } from './state/benchmark';
 
@@ -163,6 +166,69 @@ let rightNextAt = 0;
 // Último hit del raycast, actualizado cada frame; se usa desde los handlers
 // de teclado (por ejemplo, la tecla M para poner fuentes en las dos rejillas).
 let lastHit: RayHit | null = null;
+let waterPaused = false;
+
+const undoStack = new UndoStack(10);
+
+// Punto de anclaje para presets y traducción: el punto apuntado si hay hit,
+// o la posición del jugador (proyectada a suelo) si no.
+function presetAnchor(): { x: number; y: number; z: number } {
+  if (lastHit) {
+    const wp = activeWorld.grid.center(lastHit.placeCell);
+    return { x: wp.x, y: lastHit.placeYLayer, z: wp.z };
+  }
+  return {
+    x: camera.position.x,
+    y: Math.floor(camera.position.y),
+    z: camera.position.z,
+  };
+}
+
+function runPreset(name: PresetName, opts?: object): void {
+  const anchor = presetAnchor();
+  const plan = buildPreset(name, anchor, opts);
+  const entry = applyPlan(plan, worldHex, worldSq, `preset ${name}`);
+  undoStack.push(entry);
+  hud.flashMessage(`preset ${name}`);
+}
+
+function runTranslate(): void {
+  const anchor = presetAnchor();
+  const other = activeWorld === worldHex ? worldSq : worldHex;
+  const plan = planTranslate(activeWorld, other, anchor);
+  const entry = applyPlan(plan, worldHex, worldSq, 'traducir');
+  undoStack.push(entry);
+  hud.flashMessage(`traducido a ${other.grid.kind === 'hex' ? 'hex' : 'cuadrada'}`);
+}
+
+function runUndo(): void {
+  const entry = undoStack.pop();
+  if (!entry) {
+    hud.flashMessage('Nada que deshacer');
+    return;
+  }
+  revertEntry(entry, worldHex, worldSq);
+  hud.flashMessage(`deshecho: ${entry.label}`);
+}
+
+// API de consola: hexacraft.preset('torre', {radio: 4}), .translate(), .undo().
+interface HexacraftAPI {
+  preset(name: PresetName, opts?: object): void;
+  translate(): void;
+  undo(): void;
+}
+declare global {
+  interface Window {
+    hexacraft?: HexacraftAPI;
+  }
+}
+window.hexacraft = {
+  preset: (name, opts) => runPreset(name, opts),
+  translate: () => runTranslate(),
+  undo: () => runUndo(),
+};
+
+const presetMenu = new PresetMenu((name) => runPreset(name));
 
 canvas.addEventListener('mousedown', (e) => {
   if (!player.isLocked()) return;
@@ -224,6 +290,12 @@ function copyStateToUrl(): void {
 }
 
 window.addEventListener('keydown', (e) => {
+  // Ctrl+Z deshace lo último; interceptamos siempre.
+  if (e.code === 'KeyZ' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    runUndo();
+    return;
+  }
   if (hotbar.onKey(e.code)) return;
   switch (e.code) {
     case 'KeyG':
@@ -320,19 +392,20 @@ window.addEventListener('keydown', (e) => {
       });
       break;
     case 'KeyM':
-      // Coloca una fuente en la misma posición de mundo en las DOS rejillas
-      // (para grabar la comparación en vista dividida). Requiere apuntar a
-      // algo (para tener placeYLayer).
-      if (lastHit) {
-        const wx = lastHit.point.x;
-        const wz = lastHit.point.z;
-        const yPlace = lastHit.placeYLayer;
-        const cHex = worldHex.grid.cellAt({ x: wx, z: wz });
-        const cSq = worldSq.grid.cellAt({ x: wx, z: wz });
-        worldHex.setBlock(cHex.a, cHex.b, yPlace, Block.Water);
-        worldSq.setBlock(cSq.a, cSq.b, yPlace, Block.Water);
-        hud.flashMessage('Fuente en ambas rejillas');
-      }
+      // Atajo rápido: fuente en ambas rejillas (equivalente al preset fuente,
+      // apuntado al hit si hay o al jugador si no). Guarda en las dos edits
+      // aunque la otra rejilla no esté cargada.
+      runPreset('fuente');
+      break;
+    case 'KeyP':
+      presetMenu.toggle();
+      break;
+    case 'KeyY':
+      runTranslate();
+      break;
+    case 'KeyL':
+      waterPaused = !waterPaused;
+      hud.flashMessage(waterPaused ? 'Agua en pausa' : 'Agua reanudada');
       break;
     case 'Delete':
       if (window.confirm('¿Borrar mis construcciones de esta semilla?')) {
@@ -381,12 +454,14 @@ function tick(): void {
   }
 
   // Simulación de agua: siempre el activo; en split, también el otro para
-  // que las dos rejillas avancen sincronizadas.
+  // que las dos rejillas avancen sincronizadas. Se pausa con L.
   const dtMs = dt * 1000;
-  activeWorld.updateWater(dtMs);
-  if (split.active) {
-    const other = activeWorld === worldHex ? worldSq : worldHex;
-    other.updateWater(dtMs);
+  if (!waterPaused) {
+    activeWorld.updateWater(dtMs);
+    if (split.active) {
+      const other = activeWorld === worldHex ? worldSq : worldHex;
+      other.updateWater(dtMs);
+    }
   }
 
   if (!benchDriving) player.update(dt);

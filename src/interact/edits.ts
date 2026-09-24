@@ -37,6 +37,14 @@ export class WorldEdits {
     }
   }
 
+  // ¿Hay una edición registrada para esta celda? Se usa en la traducción
+  // entre rejillas para "solo modificaciones" (no traducir terreno).
+  hasAt(chunkA: number, chunkB: number, localA: number, localB: number, y: number): boolean {
+    const m = this.byChunk.get(chunkKey(chunkA, chunkB));
+    if (!m) return false;
+    return m.has(localKey(localA, localB, y));
+  }
+
   // Utilidades para tests.
   size(): number {
     let n = 0;

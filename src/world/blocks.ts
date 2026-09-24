@@ -178,3 +178,11 @@ export function waterBlockAtLevel(level: number): Block {
   if (level >= 1 && level <= 7) return (Block.WaterL1 + level - 1) as Block;
   return Block.Air;
 }
+
+// Regla del raycast: se detiene en cualquier sólido y también en las fuentes
+// de agua (para poder romperlas con clic izquierdo). El agua corriente
+// (WaterL1..7) sigue dejando pasar el rayo, así se puede apuntar a través de
+// un chorro fino a lo que hay detrás.
+export function stopsRay(b: Block): boolean {
+  return isSolid(b) || b === Block.Water;
+}

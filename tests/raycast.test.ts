@@ -53,16 +53,26 @@ describe.each(grids)('%s — raycast: casos sencillos', (_, makeGrid) => {
     expect(hit!.placeYLayer).toBe(24);
   });
 
-  it('el agua no bloquea el rayo', () => {
+  it('el agua corriente no bloquea el rayo (fase 6: sí las fuentes)', () => {
     const grid = makeGrid();
     const s = new MockSampler();
-    // Agua entre y y la piedra: no debe interceptar.
-    s.set(0, 0, 22, Block.Water);
-    s.set(0, 0, 23, Block.Water);
+    // Agua corriente entre la cámara y la piedra: no debe interceptar.
+    s.set(0, 0, 22, Block.WaterL5);
+    s.set(0, 0, 23, Block.WaterL7);
     s.set(0, 0, 19, Block.Stone);
     const hit = raycast(grid, s, { x: 0, y: 26, z: 0 }, { x: 0, y: -1, z: 0 }, 10);
     expect(hit).not.toBeNull();
     expect(hit!.yLayer).toBe(19);
+  });
+
+  it('las fuentes de agua (Water) sí detienen el rayo (para poder romperlas)', () => {
+    const grid = makeGrid();
+    const s = new MockSampler();
+    s.set(0, 0, 22, Block.Water); // fuente
+    s.set(0, 0, 19, Block.Stone);
+    const hit = raycast(grid, s, { x: 0, y: 26, z: 0 }, { x: 0, y: -1, z: 0 }, 10);
+    expect(hit).not.toBeNull();
+    expect(hit!.yLayer).toBe(22);
   });
 
   it('rango limitado a 6 unidades', () => {

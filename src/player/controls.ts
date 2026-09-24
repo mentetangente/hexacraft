@@ -69,6 +69,32 @@ export class Player {
     this.placed = false;
   }
 
+  // Cambia el mundo activo (rejilla + sampler). Se usa cuando main.ts alterna
+  // entre worldHex y worldSq con la tecla G, o al importar/borrar guardados.
+  setWorld(grid: Grid, sampler: BlockSampler): void {
+    this.grid = grid;
+    this.sampler = sampler;
+    snapOutOfSolid(this.state, this.grid, this.sampler, this.cfg);
+    this.placed = false;
+  }
+
+  // Aplica un estado externo (por ejemplo, cargado del hash de la URL). No
+  // llama a placeOnSurface: respeta la Y exacta que venga.
+  applyState(
+    pos: { x: number; y: number; z: number },
+    yaw: number,
+    pitch: number,
+    mode: 'walk' | 'fly',
+  ): void {
+    this.state.position = { ...pos };
+    this.state.velocity = { x: 0, y: 0, z: 0 };
+    this.state.yaw = yaw;
+    this.state.pitch = pitch;
+    this.state.mode = mode;
+    this.state.onGround = false;
+    this.placed = true;
+  }
+
   update(dtFrame: number): void {
     // Aparición inicial diferida hasta que el chunk esté cargado.
     if (!this.placed) {

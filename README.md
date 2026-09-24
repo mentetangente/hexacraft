@@ -21,15 +21,25 @@ Se abre directamente en el navegador, sin instalar nada.
 - **Clic** en el canvas para bloquear el puntero.
 - **WASD** mover, **Espacio** saltar / nadar arriba / subir en vuelo,
   **Shift** sprint (andando) o bajar (en vuelo).
-- **F** alterna vuelo, **G** alterna rejilla (hexágonos ↔ cuadrados), **T** alterna
-  texturas ↔ colores planos, **X** alambre.
+- **F** alterna vuelo, **G** alterna rejilla (hexágonos ↔ cuadrados),
+  **V** vista dividida (hex a la izquierda, cuadrados a la derecha).
+- **T** alterna texturas ↔ colores planos, **X** alambre.
 - **+** y **−** ajustan la distancia de render.
 - **1..9** o **rueda del ratón** eligen bloque de la barra; **clic izquierdo** rompe,
   **clic derecho** coloca (mantener repite cada 0,25 s).
+- **C** copia la URL con el estado actual (rejilla, semilla, posición, orientación,
+  modo, distancia, texturas).
+- **B** exporta las construcciones a un archivo JSON, **N** importa uno,
+  **Supr** borra las construcciones de la semilla actual (con confirmación).
+  Las construcciones se autoguardan en `localStorage` por semilla y rejilla.
 - **F3** panel de depuración, **F1** modo cine.
 
-También se puede fijar la distancia de render en la URL, por ejemplo
-`?distancia=96` (con clamp `[16, 256]`).
+URL:
+
+- `?distancia=96` fija la distancia inicial (clamp `[16, 256]`).
+- `?benchmark=1` (opcional `&grid=hex|square`) vuela una órbita fija de 30 s y
+  muestra un resumen copiable con fps, p95 de frame, y tiempos de gen/mesh.
+- Hash `#grid=…&seed=…&pos=…&rot=…&mode=…&dist=…&tex=…` restaura un estado.
 
 ## Licencia
 

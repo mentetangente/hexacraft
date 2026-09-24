@@ -20,32 +20,40 @@ export interface HudInputs {
   inWater: boolean;
   mode: 'walk' | 'fly';
   pointed: { a: number; b: number; y: number; face: string } | null;
+  split: boolean;
 }
 
 export class Hud {
   private readonly container: HTMLElement;
   private readonly panelF3: HTMLElement;
   private readonly title: HTMLElement;
+  private readonly toast: HTMLElement;
+  private toastTimer: number | null = null;
   private visible = true;
   private cinema = false; // F1
 
   constructor(root: HTMLElement) {
-    // El contenedor (#hud) se dispone como flex column con gap; los hijos se
-    // apilan en el flujo, así el panel F3 nunca se solapa con el título aunque
-    // este se envuelva a varias líneas.
     this.container = root;
 
     this.title = document.createElement('div');
     this.title.style.cssText =
       'font:14px ui-monospace,Consolas,monospace;color:#eee;background:rgba(0,0,0,0.5);padding:6px 10px;border-radius:4px;';
     this.title.textContent =
-      'Clic para jugar · WASD · Espacio · Shift sprint / bajar · F vuelo · G rejilla · T texturas · X alambre · +/− distancia · F3 · F1';
+      'Clic · WASD · Espacio · Shift · F vuelo · G rejilla · V split · T texturas · X alambre · +/− dist · C copiar URL · B/N guardar/importar · Supr borrar · F3 · F1';
     this.container.appendChild(this.title);
 
     this.panelF3 = document.createElement('pre');
     this.panelF3.style.cssText =
       'margin:0;font:12px ui-monospace,Consolas,monospace;color:#dcefff;background:rgba(0,0,0,0.55);padding:6px 10px;border-radius:4px;white-space:pre;';
     this.container.appendChild(this.panelF3);
+
+    this.toast = document.createElement('div');
+    this.toast.style.cssText =
+      'position:fixed;top:50%;left:50%;transform:translate(-50%,-50%);' +
+      'font:14px ui-monospace,Consolas,monospace;color:#fff;' +
+      'background:rgba(0,0,0,0.75);padding:8px 16px;border-radius:6px;' +
+      'pointer-events:none;opacity:0;transition:opacity 0.2s ease;z-index:1000;';
+    document.body.appendChild(this.toast);
   }
 
   toggleF3(): void {
@@ -64,6 +72,16 @@ export class Hud {
     return this.cinema;
   }
 
+  flashMessage(text: string, ms = 1000): void {
+    this.toast.textContent = text;
+    this.toast.style.opacity = '1';
+    if (this.toastTimer !== null) window.clearTimeout(this.toastTimer);
+    this.toastTimer = window.setTimeout(() => {
+      this.toast.style.opacity = '0';
+      this.toastTimer = null;
+    }, ms);
+  }
+
   update(x: HudInputs): void {
     if (!this.visible || this.cinema) return;
     const kind = x.grid.kind === 'hex' ? 'hexágonos' : 'cuadrados';
@@ -74,7 +92,7 @@ export class Hud {
       : '—';
     this.panelF3.textContent = [
       `fps             ${nf1.format(x.fps)}`,
-      `rejilla         ${kind}`,
+      `rejilla         ${kind}${x.split ? ' (split)' : ''}`,
       `modo            ${x.mode === 'walk' ? 'andar' : 'vuelo'}`,
       `celda cámara    ${cellLabel} y=${nf0.format(x.cameraY)}`,
       `posición        (${nf1.format(x.playerPos.x)}, ${nf1.format(x.playerPos.y)}, ${nf1.format(x.playerPos.z)})`,
@@ -89,6 +107,7 @@ export class Hud {
       `texturas        ${x.textured ? 'sí' : 'no'}`,
       `gen medio       ${nf1.format(x.meanGenMs)} ms`,
       `mesh medio      ${nf1.format(x.meanMeshMs)} ms`,
+      `guardar         B · importar N · borrar Supr · URL C`,
     ].join('\n');
   }
 }

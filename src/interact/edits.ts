@@ -47,4 +47,42 @@ export class WorldEdits {
   clear(): void {
     this.byChunk.clear();
   }
+
+  // Serialización estable para localStorage/JSON. Estructura:
+  //   [ [chunkKey, [ [localKey, blockId], ... ] ], ... ]
+  serialize(): SerializedEdits {
+    const out: SerializedEdits = [];
+    for (const [ck, m] of this.byChunk) {
+      const entries: Array<[string, number]> = [];
+      for (const [lk, block] of m) entries.push([lk, block]);
+      out.push([ck, entries]);
+    }
+    return out;
+  }
+
+  deserialize(data: SerializedEdits): void {
+    this.byChunk.clear();
+    for (const [ck, entries] of data) {
+      const m = new Map<LocalKey, Block>();
+      for (const [lk, block] of entries) m.set(lk, block as Block);
+      this.byChunk.set(ck, m);
+    }
+  }
+}
+
+export type SerializedEdits = Array<[string, Array<[string, number]>]>;
+
+export function isValidSerializedEdits(v: unknown): v is SerializedEdits {
+  if (!Array.isArray(v)) return false;
+  for (const item of v) {
+    if (!Array.isArray(item) || item.length !== 2) return false;
+    if (typeof item[0] !== 'string') return false;
+    if (!Array.isArray(item[1])) return false;
+    for (const entry of item[1]) {
+      if (!Array.isArray(entry) || entry.length !== 2) return false;
+      if (typeof entry[0] !== 'string') return false;
+      if (typeof entry[1] !== 'number') return false;
+    }
+  }
+  return true;
 }

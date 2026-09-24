@@ -46,13 +46,12 @@ export class World {
   private readonly terrain: Terrain;
 
   private readonly texture: THREE.DataArrayTexture;
-  private readonly materials: WorldMaterials;
+  readonly materials: WorldMaterials;
+  private readonly ownsMaterials: boolean;
 
-  // Diferencias del jugador por rejilla: hex y cuadrada se guardan por
-  // separado (celdas y coord de mundo distintas). Sobreviven a descargar
-  // y recargar chunks.
-  private readonly editsHex = new WorldEdits();
-  private readonly editsSquare = new WorldEdits();
+  // Diferencias del jugador de esta rejilla. Sobrevive a descargar/recargar
+  // chunks; en split view cada World mantiene el suyo.
+  readonly edits: WorldEdits;
 
   private genTimes: number[] = [];
   private meshTimes: number[] = [];
@@ -61,12 +60,25 @@ export class World {
     public grid: Grid,
     public readonly seed: number,
     public renderDistance = 64,
+    shared?: {
+      readonly materials: WorldMaterials;
+      readonly texture: THREE.DataArrayTexture;
+    },
+    edits?: WorldEdits,
   ) {
     this.terrain = new Terrain(seed);
-    this.texture = createBlockTexture(seed);
-    this.materials = createWorldMaterials(this.texture);
-    this.opaqueGroup.name = 'chunks-opaque';
-    this.waterGroup.name = 'chunks-water';
+    if (shared) {
+      this.texture = shared.texture;
+      this.materials = shared.materials;
+      this.ownsMaterials = false;
+    } else {
+      this.texture = createBlockTexture(seed);
+      this.materials = createWorldMaterials(this.texture);
+      this.ownsMaterials = true;
+    }
+    this.edits = edits ?? new WorldEdits();
+    this.opaqueGroup.name = `chunks-opaque-${grid.kind}`;
+    this.waterGroup.name = `chunks-water-${grid.kind}`;
   }
 
   get stats(): WorldStats {
@@ -170,13 +182,9 @@ export class World {
     }
   }
 
-  private get currentEdits(): WorldEdits {
-    return this.grid.kind === 'hex' ? this.editsHex : this.editsSquare;
-  }
-
   private loadChunk(ca: number, cb: number): void {
     const t0 = performance.now();
-    const chunk = generateChunk(this.grid, this.terrain, ca, cb, this.currentEdits);
+    const chunk = generateChunk(this.grid, this.terrain, ca, cb, this.edits);
     const t1 = performance.now();
     this.chunks.set(chunkKey(ca, cb), chunk);
     this.record(this.genTimes, t1 - t0);
@@ -263,23 +271,39 @@ export class World {
     this.renderDistance = d;
   }
 
-  swapGrid(newGrid: Grid): void {
-    this.grid = newGrid;
-    for (const entry of this.meshes.values()) this.disposeMeshes(entry);
-    this.meshes.clear();
-    this.chunks.clear();
-    this.dirtyMeshes.clear();
-    this.genTimes.length = 0;
-    this.meshTimes.length = 0;
-  }
-
   dispose(): void {
     for (const entry of this.meshes.values()) this.disposeMeshes(entry);
     this.meshes.clear();
     this.chunks.clear();
     this.dirtyMeshes.clear();
-    this.materials.dispose();
-    this.texture.dispose();
+    if (this.ownsMaterials) {
+      this.materials.dispose();
+      this.texture.dispose();
+    }
+  }
+
+  // Vacía los edits y fuerza remallado de todos los chunks cargados. Se usa al
+  // "Borrar mis construcciones" y al importar un archivo distinto.
+  reloadFromEdits(newEdits: WorldEdits): void {
+    this.edits.clear();
+    for (const [k, entries] of newEdits.serialize()) {
+      const [caStr, cbStr] = k.split(',');
+      const ca = parseInt(caStr, 10);
+      const cb = parseInt(cbStr, 10);
+      for (const [lk, block] of entries) {
+        const parts = lk.split(',');
+        const la = parseInt(parts[0], 10);
+        const lb = parseInt(parts[1], 10);
+        const y = parseInt(parts[2], 10);
+        this.edits.set(ca, cb, la, lb, y, block as Block);
+      }
+    }
+    // Descarga todo lo cargado; el siguiente update lo regenera con los
+    // edits nuevos aplicados.
+    for (const entry of this.meshes.values()) this.disposeMeshes(entry);
+    this.meshes.clear();
+    this.chunks.clear();
+    this.dirtyMeshes.clear();
   }
 
   getBlock(worldA: number, worldB: number, y: number): Block {
@@ -297,7 +321,7 @@ export class World {
   setBlock(worldA: number, worldB: number, y: number, block: Block): boolean {
     if (y < 0 || y >= CHUNK_HEIGHT) return false;
     const cl = this.grid.cellToChunk({ a: worldA, b: worldB });
-    this.currentEdits.set(cl.chunkA, cl.chunkB, cl.localA, cl.localB, y, block);
+    this.edits.set(cl.chunkA, cl.chunkB, cl.localA, cl.localB, y, block);
     const ck = chunkKey(cl.chunkA, cl.chunkB);
     const chunk = this.chunks.get(ck);
     if (chunk) {

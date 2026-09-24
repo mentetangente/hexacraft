@@ -1,5 +1,5 @@
 import * as THREE from 'three';
-import { Block } from '../world/blocks';
+import { Block, isWater } from '../world/blocks';
 
 // Texturas procedurales pixel art. Todas las capas son 16×16 px; combinadas con
 // UV en unidades de mundo (16 px/unidad) esto da densidad idéntica en hex y en
@@ -309,6 +309,8 @@ export function createBlockTexture(seed: number): THREE.DataArrayTexture {
 }
 
 export function texLayerFor(block: Block, face: 'top' | 'side' | 'bottom'): number {
+  // Todos los niveles de agua (fuente y WaterL1..7) usan las capas de agua.
+  if (isWater(block)) return face === 'side' ? TexLayer.WaterSide : TexLayer.WaterTop;
   switch (block) {
     case Block.Stone:
       return TexLayer.Stone;
@@ -322,8 +324,6 @@ export function texLayerFor(block: Block, face: 'top' | 'side' | 'bottom'): numb
           : TexLayer.GrassSide;
     case Block.Sand:
       return TexLayer.Sand;
-    case Block.Water:
-      return face === 'side' ? TexLayer.WaterSide : TexLayer.WaterTop;
     case Block.Log:
       return face === 'side' ? TexLayer.LogSide : TexLayer.LogTop;
     case Block.Leaves:

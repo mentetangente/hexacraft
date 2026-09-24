@@ -186,15 +186,23 @@ function isSolidBlock(b: Block): boolean {
   return isSolid(b);
 }
 
-function playerInWater(
+interface WaterContact {
+  readonly feet: boolean;
+  readonly head: boolean;
+}
+
+function playerWaterContact(
   state: PlayerState,
   grid: Grid,
   sampler: BlockSampler,
   cfg: PlayerConfig,
-): boolean {
+): WaterContact {
   const cell = grid.cellAt({ x: state.position.x, z: state.position.z });
-  const midY = Math.floor(state.position.y + cfg.height * 0.5);
-  return sampler.getBlock(cell.a, cell.b, midY) === Block.Water;
+  const feetLayer = Math.floor(state.position.y + 1e-3);
+  const headLayer = Math.floor(state.position.y + cfg.height - 1e-3);
+  const feet = sampler.getBlock(cell.a, cell.b, feetLayer) === Block.Water;
+  const head = sampler.getBlock(cell.a, cell.b, headLayer) === Block.Water;
+  return { feet, head };
 }
 
 // ¿Está cargado el chunk bajo el jugador? Congelamos la física si no.
@@ -454,8 +462,13 @@ export function physicsStep(
     }
   }
 
-  // 2) Estado de agua (usado por velocidades y gravedad).
-  state.inWater = playerInWater(state, grid, sampler, cfg);
+  // 2) Contacto con agua: pies y cabeza por separado para tratar bien la
+  //    superficie. `state.inWater` (para el HUD y velocidades) es true si
+  //    cualquier parte del cilindro toca agua. La gravedad reducida solo
+  //    se aplica si el cuerpo está bien sumergido (cabeza también en agua).
+  const water = playerWaterContact(state, grid, sampler, cfg);
+  state.inWater = water.feet || water.head;
+  const fullySubmerged = water.feet && water.head;
 
   // 3) Direcciones horizontales en función del yaw.
   const yaw = state.yaw;
@@ -489,15 +502,20 @@ export function physicsStep(
   state.velocity.x = wishX * horizontalSpeed * waterHorMul;
   state.velocity.z = wishZ * horizontalSpeed * waterHorMul;
 
-  const gravity = cfg.gravity * (state.inWater ? cfg.waterGravityMul : 1);
+  const gravity = cfg.gravity * (fullySubmerged ? cfg.waterGravityMul : 1);
   state.velocity.y -= gravity * dt;
 
-  // Salto / nado.
+  // Salto / nado. Prioridades:
+  //  1. onGround (dentro o fuera del agua) → salto completo.
+  //  2. Pies en agua y cabeza fuera → salto de superficie (para salir a la orilla).
+  //  3. Totalmente sumergido → nado suave (waterSwimUpSpeed).
   if (input.vertical > 0) {
-    if (state.inWater) {
-      state.velocity.y = Math.max(state.velocity.y, cfg.waterSwimUpSpeed);
-    } else if (state.onGround) {
+    if (state.onGround) {
       state.velocity.y = cfg.jumpSpeed;
+    } else if (water.feet && !water.head) {
+      state.velocity.y = Math.max(state.velocity.y, cfg.jumpSpeed);
+    } else if (fullySubmerged) {
+      state.velocity.y = Math.max(state.velocity.y, cfg.waterSwimUpSpeed);
     }
   }
 

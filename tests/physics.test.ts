@@ -259,7 +259,54 @@ describe('snapOutOfSolid — el jugador nunca queda dentro de un bloque', () => 
   });
 });
 
-// -------- 6) sanity: placeOnSurface --------
+// -------- 6) salir del agua saltando --------
+
+describe.each(grids)('%s — al pulsar Espacio se puede saltar para salir del agua', (_, makeGrid) => {
+  it('en la superficie (pies en agua, cabeza fuera) el salto lanza como uno normal', () => {
+    const grid = makeGrid();
+    const sampler = new MockSampler();
+    // Fondo sólido en y=14 y una columna de agua profunda (y=15..19).
+    sampler.fillLayer(14, 5);
+    for (let y = 15; y <= 19; y++) sampler.fillLayer(y, 5, Block.Water);
+
+    const state = createPlayer();
+    // Pies en la última capa de agua (y=19), cabeza justo fuera.
+    state.position = { x: 0, y: 19.5, z: 0 };
+    const input = createInput();
+    input.vertical = 1;
+
+    physicsStep(state, input, grid, sampler, CFG, CFG.fixedDt);
+    // El salto de superficie debe dejar vy ≈ jumpSpeed (menos la gravedad de un paso).
+    expect(state.velocity.y).toBeGreaterThan(CFG.jumpSpeed - CFG.gravity * CFG.fixedDt - 1e-6);
+
+    // Con el salto mantenido, alcanza al menos y=21 (un bloque por encima del agua).
+    let maxY = state.position.y;
+    for (let i = 0; i < 180; i++) {
+      physicsStep(state, input, grid, sampler, CFG, CFG.fixedDt);
+      if (state.position.y > maxY) maxY = state.position.y;
+    }
+    expect(maxY).toBeGreaterThanOrEqual(21);
+  });
+
+  it('completamente sumergido, Espacio sube suave (waterSwimUpSpeed)', () => {
+    const grid = makeGrid();
+    const sampler = new MockSampler();
+    // Agua muy profunda para que la cabeza también esté en agua sin tocar el fondo.
+    for (let y = 0; y <= 30; y++) sampler.fillLayer(y, 5, Block.Water);
+
+    const state = createPlayer();
+    state.position = { x: 0, y: 15, z: 0 }; // bien sumergido
+    const input = createInput();
+    input.vertical = 1;
+
+    physicsStep(state, input, grid, sampler, CFG, CFG.fixedDt);
+    // No es un salto completo: es el nado suave.
+    expect(state.velocity.y).toBeLessThan(CFG.jumpSpeed);
+    expect(state.velocity.y).toBeGreaterThan(0);
+  });
+});
+
+// -------- 7) sanity: placeOnSurface --------
 
 describe.each(grids)('%s — placeOnSurface coloca los pies encima', (_, makeGrid) => {
   it('encuentra la primera columna libre por encima del suelo', () => {

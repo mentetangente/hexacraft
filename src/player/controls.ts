@@ -63,10 +63,13 @@ export class Player {
 
   swapGrid(newGrid: Grid): void {
     this.grid = newGrid;
-    // Si en la nueva rejilla el jugador quedó dentro de un bloque, sube.
-    snapOutOfSolid(this.state, this.grid, this.sampler, this.cfg);
-    // Fuerza re-ubicación si al cambiar de rejilla el chunk aún no existe.
-    this.placed = false;
+    // Solo en modo andar: sube si el jugador quedó dentro de un bloque y
+    // fuerza el re-aterrizaje. En modo vuelo, mantén la posición para no
+    // teletransportar al suelo.
+    if (this.state.mode === 'walk') {
+      snapOutOfSolid(this.state, this.grid, this.sampler, this.cfg);
+      this.placed = false;
+    }
   }
 
   // Cambia el mundo activo (rejilla + sampler). Se usa cuando main.ts alterna
@@ -74,8 +77,10 @@ export class Player {
   setWorld(grid: Grid, sampler: BlockSampler): void {
     this.grid = grid;
     this.sampler = sampler;
-    snapOutOfSolid(this.state, this.grid, this.sampler, this.cfg);
-    this.placed = false;
+    if (this.state.mode === 'walk') {
+      snapOutOfSolid(this.state, this.grid, this.sampler, this.cfg);
+      this.placed = false;
+    }
   }
 
   // Aplica un estado externo (por ejemplo, cargado del hash de la URL). No

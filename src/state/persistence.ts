@@ -1,4 +1,5 @@
 import { WorldEdits, isValidSerializedEdits } from '../interact/edits';
+import type { CameraPath } from './cameraPath';
 
 // Persistencia de las construcciones del jugador en localStorage. Clave por
 // semilla y rejilla. Todos los accesos van con try/catch para que un fallo de
@@ -86,8 +87,52 @@ export class Persistence {
     try {
       storage.removeItem(this.storageKey('hex'));
       storage.removeItem(this.storageKey('square'));
+      storage.removeItem(this.pathKey());
     } catch (err) {
       console.warn('Hexacraft: no se pudo borrar el guardado:', err);
+    }
+  }
+
+  // Recorrido de cámara (fase 7b): almacenado bajo su propia clave.
+  private pathKey(): string {
+    return `${KEY_PREFIX}:${this.seed}:cameraPath`;
+  }
+
+  savePath(path: CameraPath): void {
+    const storage = this.safeGetStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(this.pathKey(), JSON.stringify({ version: 2, path }));
+    } catch (err) {
+      console.warn('Hexacraft: no se pudo guardar el recorrido:', err);
+    }
+  }
+
+  loadPath(): CameraPath | null {
+    const storage = this.safeGetStorage();
+    if (!storage) return null;
+    try {
+      const raw = storage.getItem(this.pathKey());
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as { version?: number; path?: unknown };
+      if (parsed.version !== 2) return null;
+      // Validación mínima (para no confiar en localStorage): comprobamos que
+      // los campos existen y son del tipo esperado.
+      const p = parsed.path as CameraPath | undefined;
+      if (!p || !Array.isArray(p.keyframes)) return null;
+      return p;
+    } catch {
+      return null;
+    }
+  }
+
+  clearPath(): void {
+    const storage = this.safeGetStorage();
+    if (!storage) return;
+    try {
+      storage.removeItem(this.pathKey());
+    } catch {
+      /* ignore */
     }
   }
 }

@@ -5,17 +5,22 @@ import {
 } from '../interact/edits';
 import { BLOCKS } from '../world/blocks';
 import { CHUNK_HEIGHT, CHUNK_WIDTH } from '../world/Chunk';
+import type { CameraPath, Keyframe } from './cameraPath';
 
 // Formato de archivo JSON para exportar/importar construcciones. Incluye
 // versión y validación estricta al importar (rechaza malformados sin romper
 // el mundo actual).
 
+// Formato v1: solo `seed`, `hex`, `square`. Formato v2 añade opcionalmente
+// `cameraPath`. Los archivos v1 siguen aceptándose (compatibilidad hacia
+// atrás), y el exportador genera siempre v2.
 export interface HexacraftSave {
   readonly format: 'hexacraft-save';
-  readonly version: 1;
+  readonly version: 1 | 2;
   readonly seed: number;
   readonly hex: SerializedEdits;
   readonly square: SerializedEdits;
+  readonly cameraPath?: CameraPath;
 }
 
 // Límites razonables: 5 MB de texto y 200 000 modificaciones totales.
@@ -43,24 +48,53 @@ export function buildSave(
   seed: number,
   hex: WorldEdits,
   square: WorldEdits,
+  cameraPath?: CameraPath,
 ): HexacraftSave {
-  return {
+  const base: HexacraftSave = {
     format: 'hexacraft-save',
-    version: 1,
+    version: 2,
     seed,
     hex: hex.serialize(),
     square: square.serialize(),
   };
+  if (cameraPath) {
+    return { ...base, cameraPath };
+  }
+  return base;
+}
+
+function isValidKeyframe(v: unknown): v is Keyframe {
+  if (typeof v !== 'object' || v === null) return false;
+  const o = v as Record<string, unknown>;
+  for (const k of ['x', 'y', 'z', 'yaw', 'pitch']) {
+    if (typeof o[k] !== 'number' || !Number.isFinite(o[k] as number)) return false;
+  }
+  return true;
+}
+
+function isValidCameraPath(v: unknown): v is CameraPath {
+  if (typeof v !== 'object' || v === null) return false;
+  const o = v as Record<string, unknown>;
+  if (!Array.isArray(o.keyframes)) return false;
+  for (const kf of o.keyframes) if (!isValidKeyframe(kf)) return false;
+  if (typeof o.duration !== 'number' || !Number.isFinite(o.duration)) return false;
+  if (typeof o.loop !== 'boolean') return false;
+  if (typeof o.startDelay !== 'number' || !Number.isFinite(o.startDelay)) return false;
+  return true;
 }
 
 export function isValidSave(v: unknown): v is HexacraftSave {
   if (typeof v !== 'object' || v === null) return false;
   const o = v as Record<string, unknown>;
   if (o.format !== 'hexacraft-save') return false;
-  if (o.version !== 1) return false;
+  if (o.version !== 1 && o.version !== 2) return false;
   if (typeof o.seed !== 'number' || !Number.isFinite(o.seed)) return false;
   if (!isValidSerializedEdits(o.hex)) return false;
   if (!isValidSerializedEdits(o.square)) return false;
+  // v2 puede llevar cameraPath; si viene, se valida. Si es v1, se ignora.
+  if (o.version === 2 && o.cameraPath !== undefined && !isValidCameraPath(o.cameraPath)) {
+    return false;
+  }
   return true;
 }
 

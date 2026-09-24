@@ -39,7 +39,7 @@ export class Hud {
     this.title.style.cssText =
       'font:14px ui-monospace,Consolas,monospace;color:#eee;background:rgba(0,0,0,0.5);padding:6px 10px;border-radius:4px;';
     this.title.textContent =
-      'Clic · WASD · Espacio · Shift · F vuelo · G rejilla · V split · T tex · X alambre · +/− dist · C URL · B/N guardar · Supr borrar · M fuente · P presets · Y traducir · Ctrl+Z deshacer · L agua · F3 · F1';
+      'Clic · WASD · Espacio · Shift · F vuelo · G rejilla · V split · T tex · X alambre · +/− dist · C URL · B/N guardar · Supr borrar · M fuente · P presets · Y traducir · Ctrl+Z deshacer · L agua · K clave · Shift+K borrar recorrido · O play · H mesa · F3 · F1';
     this.container.appendChild(this.title);
 
     this.panelF3 = document.createElement('pre');

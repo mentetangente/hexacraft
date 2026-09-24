@@ -23,6 +23,15 @@ import { UndoStack, applyPlan, revertEntry } from './presets/build';
 import { PresetName, buildPreset } from './presets/presets';
 import { planTranslate } from './presets/translate';
 import { PresetMenu } from './ui/presetMenu';
+import {
+  CameraPath,
+  Keyframe,
+  buildArcLengthTable,
+  makeEmptyPath,
+  samplePath,
+} from './state/cameraPath';
+import { CraftingTable } from './ui/craftingTable';
+import { applyLetterbox, parseResolutionFromURL } from './state/resolution';
 import { SplitView } from './render/splitView';
 import { Benchmark, parseBenchmark } from './state/benchmark';
 
@@ -38,13 +47,21 @@ const canvas = document.createElement('canvas');
 canvas.style.cssText = 'display:block;width:100%;height:100%;cursor:crosshair;';
 document.body.appendChild(canvas);
 
+const fixedRes = parseResolutionFromURL();
+
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: true });
-renderer.setPixelRatio(window.devicePixelRatio);
-renderer.setSize(window.innerWidth, window.innerHeight);
+renderer.setPixelRatio(fixedRes ? fixedRes.pixelRatio : window.devicePixelRatio);
+if (fixedRes) {
+  renderer.setSize(fixedRes.width, fixedRes.height, false);
+  applyLetterbox(canvas, fixedRes);
+} else {
+  renderer.setSize(window.innerWidth, window.innerHeight);
+}
 renderer.setClearColor(SKY_COLOR);
 
 const scene = new THREE.Scene();
-const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 800);
+const initialAspect = fixedRes ? fixedRes.width / fixedRes.height : window.innerWidth / window.innerHeight;
+const camera = new THREE.PerspectiveCamera(70, initialAspect, 0.1, 800);
 
 const hudRoot = document.getElementById('hud');
 if (!hudRoot) throw new Error('#hud no encontrado en index.html');
@@ -229,6 +246,61 @@ window.hexacraft = {
 };
 
 const presetMenu = new PresetMenu((name) => runPreset(name));
+const craftingTable = new CraftingTable(hudRoot, activeWorld.grid, () => hotbar.currentBlock());
+
+// ---- Recorrido de cámara (fase 7b) ----
+let cameraPath: CameraPath = persistence.loadPath() ?? makeEmptyPath();
+let pathTable = buildArcLengthTable(cameraPath.keyframes);
+interface PlaybackState {
+  active: boolean;
+  startMs: number;
+  prevCinema: boolean;
+}
+const playback: PlaybackState = { active: false, startMs: 0, prevCinema: false };
+
+function addKeyframe(): void {
+  const kf: Keyframe = {
+    x: player.state.position.x,
+    y: player.state.position.y + cfg.eyeHeight,
+    z: player.state.position.z,
+    yaw: player.state.yaw,
+    pitch: player.state.pitch,
+  };
+  cameraPath = { ...cameraPath, keyframes: [...cameraPath.keyframes, kf] };
+  pathTable = buildArcLengthTable(cameraPath.keyframes);
+  persistence.savePath(cameraPath);
+  hud.flashMessage(`Fotograma clave ${cameraPath.keyframes.length}`);
+}
+
+function clearKeyframes(): void {
+  cameraPath = { ...cameraPath, keyframes: [] };
+  pathTable = buildArcLengthTable(cameraPath.keyframes);
+  persistence.savePath(cameraPath);
+  hud.flashMessage('Recorrido borrado');
+}
+
+function playPath(): void {
+  if (cameraPath.keyframes.length < 2) {
+    hud.flashMessage('Al menos 2 fotogramas para reproducir');
+    return;
+  }
+  playback.active = true;
+  playback.startMs = performance.now();
+  playback.prevCinema = hud.isCinema();
+  if (!playback.prevCinema) {
+    hud.toggleCinema();
+    split.setCinema(true);
+    craftingTable.setCinema(true);
+  }
+}
+
+function stopPlayback(): void {
+  playback.active = false;
+  if (!playback.prevCinema && hud.isCinema()) {
+    hud.toggleCinema();
+    split.setCinema(false);
+  }
+}
 
 canvas.addEventListener('mousedown', (e) => {
   if (!player.isLocked()) return;
@@ -259,6 +331,7 @@ function swapActiveGrid(): void {
   activeWorld = activeWorld === worldHex ? worldSq : worldHex;
   player.setWorld(activeWorld.grid, activeWorld);
   hotbar.swapGrid(activeWorld.grid);
+  craftingTable.swapGrid(activeWorld.grid);
   if (!split.active) {
     worldHex.opaqueGroup.visible = activeWorld === worldHex;
     worldHex.waterGroup.visible = activeWorld === worldHex;
@@ -407,6 +480,17 @@ window.addEventListener('keydown', (e) => {
       waterPaused = !waterPaused;
       hud.flashMessage(waterPaused ? 'Agua en pausa' : 'Agua reanudada');
       break;
+    case 'KeyK':
+      if (e.shiftKey) clearKeyframes();
+      else addKeyframe();
+      break;
+    case 'KeyO':
+      if (playback.active) stopPlayback();
+      else playPath();
+      break;
+    case 'KeyH':
+      craftingTable.toggle();
+      break;
     case 'Delete':
       if (window.confirm('¿Borrar mis construcciones de esta semilla?')) {
         worldHex.reloadFromEdits(new WorldEdits());
@@ -421,8 +505,14 @@ window.addEventListener('keydown', (e) => {
 });
 
 window.addEventListener('resize', () => {
-  renderer.setSize(window.innerWidth, window.innerHeight);
-  camera.aspect = window.innerWidth / window.innerHeight;
+  if (fixedRes) {
+    renderer.setSize(fixedRes.width, fixedRes.height, false);
+    applyLetterbox(canvas, fixedRes);
+    camera.aspect = fixedRes.width / fixedRes.height;
+  } else {
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    camera.aspect = window.innerWidth / window.innerHeight;
+  }
   camera.updateProjectionMatrix();
 });
 
@@ -464,12 +554,26 @@ function tick(): void {
     }
   }
 
-  if (!benchDriving) player.update(dt);
+  // Reproducción del recorrido: sobrescribe cámara y salta la física.
+  const playbackEuler = new THREE.Euler(0, 0, 0, 'YXZ');
+  if (playback.active) {
+    const t = (performance.now() - playback.startMs) / 1000;
+    const s = samplePath(cameraPath, pathTable, t);
+    if (!s) {
+      stopPlayback();
+    } else {
+      camera.position.set(s.pos[0], s.pos[1], s.pos[2]);
+      playbackEuler.set(s.pitch, s.yaw, 0, 'YXZ');
+      camera.quaternion.setFromEuler(playbackEuler);
+    }
+  } else if (!benchDriving) {
+    player.update(dt);
+  }
 
   // Raycast desde la cámara. Cada frame, para el contorno y para las acciones.
   camera.getWorldDirection(camDir);
   let hit: RayHit | null = null;
-  if (!benchDriving && player.isLocked()) {
+  if (!benchDriving && !playback.active && player.isLocked()) {
     hit = raycast(
       activeWorld.grid,
       activeWorld,

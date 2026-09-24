@@ -23,6 +23,67 @@ describe('parseSaveDetailed rechaza sin romper el mundo', () => {
     expect(r.ok).toBe(true);
   });
 
+  it('acepta archivos v1 sin cameraPath (compatibilidad hacia atrás)', () => {
+    const v1 = JSON.stringify({
+      format: 'hexacraft-save',
+      version: 1,
+      seed: 1234,
+      hex: [],
+      square: [],
+    });
+    const r = parseSaveDetailed(v1);
+    expect(r.ok).toBe(true);
+  });
+
+  it('roundtrip v2: cameraPath se conserva al exportar y parsear', () => {
+    const path = {
+      keyframes: [
+        { x: 1, y: 2, z: 3, yaw: 0.1, pitch: 0.2 },
+        { x: 4, y: 5, z: 6, yaw: 0.3, pitch: -0.1 },
+      ],
+      duration: 20,
+      loop: false,
+      startDelay: 2,
+    };
+    const hex = new WorldEdits();
+    hex.set(0, 0, 5, 7, 20, Block.Stone);
+    const sq = new WorldEdits();
+    const save = buildSave(1234, hex, sq, path);
+    expect(save.version).toBe(2);
+    const parsed = parseSaveDetailed(JSON.stringify(save));
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.save.cameraPath).toEqual(path);
+    }
+  });
+
+  it('v2 sin cameraPath sigue siendo válido', () => {
+    const hex = new WorldEdits();
+    const sq = new WorldEdits();
+    const save = buildSave(1234, hex, sq);
+    expect(save.version).toBe(2);
+    expect(save.cameraPath).toBeUndefined();
+    const parsed = parseSaveDetailed(JSON.stringify(save));
+    expect(parsed.ok).toBe(true);
+  });
+
+  it('cameraPath malformado (fotograma sin y) → unknown-format', () => {
+    const bad = JSON.stringify({
+      format: 'hexacraft-save',
+      version: 2,
+      seed: 1,
+      hex: [],
+      square: [],
+      cameraPath: {
+        keyframes: [{ x: 1, z: 3, yaw: 0, pitch: 0 }],
+        duration: 10,
+        loop: false,
+        startDelay: 0,
+      },
+    });
+    expect(parseSaveDetailed(bad)).toEqual({ ok: false, error: 'unknown-format' });
+  });
+
   it('JSON malformado → not-json', () => {
     const r = parseSaveDetailed('{esto no es json');
     expect(r).toEqual({ ok: false, error: 'not-json' });

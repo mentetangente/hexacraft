@@ -1,34 +1,29 @@
 import type { Grid, Point2 } from '../grid';
 import { Block, BLOCKS, def } from '../world/blocks';
+import type { Inventory } from '../game/inventory';
 
 // Barra de bloques con 9 huecos, teclas 1..9 y rueda del ratón. Los iconos se
-// dibujan por código en un canvas 2D con proyección isométrica de la forma de
-// la rejilla activa; se regeneran al cambiar de rejilla (G).
+// dibujan por código en un canvas 2D con proyección isométrica de la forma
+// de la rejilla activa. Los huecos leen del inventario del jugador (fase 7c);
+// muestran también la cuenta.
 
 const SLOTS = 9;
 const ICON_SIZE = 48;
-
-const HOTBAR_ITEMS: readonly Block[] = [
-  Block.Stone,
-  Block.Dirt,
-  Block.Grass,
-  Block.Sand,
-  Block.Log,
-  Block.Leaves,
-  Block.Planks,
-  Block.Brick,
-  Block.Glass,
-];
 
 export class Hotbar {
   private grid: Grid;
   private readonly root: HTMLElement;
   private readonly container: HTMLElement;
   private readonly slotEls: HTMLElement[] = [];
+  private readonly countEls: HTMLElement[] = [];
+  private readonly iconContainers: HTMLElement[] = [];
   private readonly label: HTMLElement;
   private readonly crosshair: HTMLElement;
   private selected = 0;
   private labelTimer: number | null = null;
+  private inventory: Inventory | null = null;
+  private lastBlocks: Array<Block | null> = new Array(SLOTS).fill(null);
+  private lastCounts: number[] = new Array(SLOTS).fill(-1);
 
   constructor(root: HTMLElement, grid: Grid) {
     this.grid = grid;
@@ -47,9 +42,18 @@ export class Hotbar {
 
     for (let i = 0; i < SLOTS; i++) {
       const slot = document.createElement('div');
-      slot.style.cssText = `width:${ICON_SIZE}px;height:${ICON_SIZE}px;background:rgba(0,0,0,0.35);border:2px solid transparent;border-radius:4px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;`;
+      slot.style.cssText = `position:relative;width:${ICON_SIZE}px;height:${ICON_SIZE}px;background:rgba(0,0,0,0.35);border:2px solid transparent;border-radius:4px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;`;
+      const iconHolder = document.createElement('div');
+      iconHolder.style.cssText = 'width:100%;height:100%;display:flex;align-items:center;justify-content:center;';
+      slot.appendChild(iconHolder);
+      const count = document.createElement('div');
+      count.style.cssText =
+        'position:absolute;bottom:2px;right:4px;font:bold 12px ui-monospace,Consolas,monospace;color:#fff;text-shadow:0 1px 2px #000;pointer-events:none;';
+      slot.appendChild(count);
       this.container.appendChild(slot);
       this.slotEls.push(slot);
+      this.iconContainers.push(iconHolder);
+      this.countEls.push(count);
     }
 
     this.label = document.createElement('div');
@@ -57,12 +61,18 @@ export class Hotbar {
       'position:fixed;bottom:72px;left:50%;transform:translateX(-50%);font:14px ui-monospace,Consolas,monospace;color:#fff;background:rgba(0,0,0,0.55);padding:4px 10px;border-radius:4px;pointer-events:none;opacity:0;transition:opacity 0.25s ease;';
     root.appendChild(this.label);
 
-    this.regenerateIcons();
     this.select(0, false);
   }
 
-  currentBlock(): Block {
-    return HOTBAR_ITEMS[this.selected];
+  bindInventory(inv: Inventory): void {
+    this.inventory = inv;
+    this.refresh();
+  }
+
+  // Bloque seleccionado. Devuelve null si la casilla activa está vacía.
+  currentBlock(): Block | null {
+    if (!this.inventory) return null;
+    return this.inventory.get(this.selected)?.block ?? null;
   }
 
   currentIndex(): number {
@@ -71,7 +81,9 @@ export class Hotbar {
 
   swapGrid(grid: Grid): void {
     this.grid = grid;
-    this.regenerateIcons();
+    // Fuerza el redibujado de todos los iconos con la nueva forma.
+    for (let i = 0; i < SLOTS; i++) this.lastBlocks[i] = null;
+    this.refresh();
   }
 
   select(index: number, showLabel = true): void {
@@ -79,7 +91,31 @@ export class Hotbar {
     this.slotEls[this.selected].style.borderColor = 'transparent';
     this.selected = index;
     this.slotEls[index].style.borderColor = '#fff';
-    if (showLabel) this.showLabel(def(HOTBAR_ITEMS[index]).name);
+    if (showLabel) {
+      const b = this.currentBlock();
+      if (b !== null) this.showLabel(def(b).name);
+    }
+  }
+
+  // Redibuja iconos y actualiza cuentas leyendo del inventario. Sólo redibuja
+  // los que hayan cambiado para no saturar el hilo.
+  refresh(): void {
+    if (!this.inventory) return;
+    for (let i = 0; i < SLOTS; i++) {
+      const slot = this.inventory.get(i);
+      const block = slot?.block ?? null;
+      const count = slot?.count ?? 0;
+      if (block !== this.lastBlocks[i]) {
+        const holder = this.iconContainers[i];
+        while (holder.firstChild) holder.removeChild(holder.firstChild);
+        if (block !== null) holder.appendChild(drawBlockIcon(this.grid, block));
+        this.lastBlocks[i] = block;
+      }
+      if (count !== this.lastCounts[i]) {
+        this.countEls[i].textContent = count > 1 ? String(count) : '';
+        this.lastCounts[i] = count;
+      }
+    }
   }
 
   onKey(code: string): boolean {
@@ -113,14 +149,6 @@ export class Hotbar {
       this.label.style.opacity = '0';
       this.labelTimer = null;
     }, 1000);
-  }
-
-  private regenerateIcons(): void {
-    for (let i = 0; i < SLOTS; i++) {
-      const slot = this.slotEls[i];
-      while (slot.firstChild) slot.removeChild(slot.firstChild);
-      slot.appendChild(drawBlockIcon(this.grid, HOTBAR_ITEMS[i]));
-    }
   }
 
   dispose(): void {

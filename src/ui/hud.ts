@@ -21,6 +21,7 @@ export interface HudInputs {
   mode: 'walk' | 'fly';
   pointed: { a: number; b: number; y: number; face: string } | null;
   split: boolean;
+  gameMode: 'creative' | 'survival';
 }
 
 export class Hud {
@@ -39,7 +40,7 @@ export class Hud {
     this.title.style.cssText =
       'font:14px ui-monospace,Consolas,monospace;color:#eee;background:rgba(0,0,0,0.5);padding:6px 10px;border-radius:4px;';
     this.title.textContent =
-      'Clic · WASD · Espacio · Shift · F vuelo · G rejilla · V split · T tex · X alambre · +/− dist · C URL · B/N guardar · Supr borrar · M fuente · P presets · Y traducir · Ctrl+Z deshacer · L agua · K clave · Shift+K borrar recorrido · O play · H mesa · F3 · F1';
+      'Clic · WASD · Espacio · Shift · F vuelo · G rejilla · V split · T tex · X alambre · +/− dist · C URL · B/N guardar · Supr borrar · E inventario · J modo · M fuente · P presets · Y traducir · Ctrl+Z deshacer · L agua · K clave · Shift+K borrar recorrido · O play · H mesa · F3 · F1';
     this.container.appendChild(this.title);
 
     this.panelF3 = document.createElement('pre');
@@ -93,7 +94,7 @@ export class Hud {
     this.panelF3.textContent = [
       `fps             ${nf1.format(x.fps)}`,
       `rejilla         ${kind}${x.split ? ' (split)' : ''}`,
-      `modo            ${x.mode === 'walk' ? 'andar' : 'vuelo'}`,
+      `modo            ${x.mode === 'walk' ? 'andar' : 'vuelo'} · ${x.gameMode === 'creative' ? 'creativo' : 'supervivencia'}`,
       `celda cámara    ${cellLabel} y=${nf0.format(x.cameraY)}`,
       `posición        (${nf1.format(x.playerPos.x)}, ${nf1.format(x.playerPos.y)}, ${nf1.format(x.playerPos.z)})`,
       `vel horizontal  ${nf1.format(speed)} u/s`,

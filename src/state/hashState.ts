@@ -3,6 +3,7 @@
 
 export type GridKind = 'hex' | 'square';
 export type PlayerMode = 'walk' | 'fly';
+export type GameMode = 'creative' | 'survival';
 
 export interface AppState {
   grid: GridKind;
@@ -13,6 +14,7 @@ export interface AppState {
   mode: PlayerMode;
   dist: number;
   textured: boolean;
+  game: GameMode;
 }
 
 const fmt2 = (n: number): string => n.toFixed(2);
@@ -28,6 +30,7 @@ export function stateToHash(s: AppState): string {
     `mode=${s.mode}`,
     `dist=${s.dist}`,
     `tex=${s.textured ? '1' : '0'}`,
+    `game=${s.game}`,
   ];
   return '#' + parts.join('&');
 }
@@ -77,6 +80,9 @@ export function hashToState(hash: string): Partial<AppState> | null {
     const tex = p.get('tex');
     if (tex === '1') out.textured = true;
     else if (tex === '0') out.textured = false;
+
+    const game = p.get('game');
+    if (game === 'creative' || game === 'survival') out.game = game;
 
     return out;
   } catch {

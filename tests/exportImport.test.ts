@@ -49,7 +49,7 @@ describe('parseSaveDetailed rechaza sin romper el mundo', () => {
     hex.set(0, 0, 5, 7, 20, Block.Stone);
     const sq = new WorldEdits();
     const save = buildSave(1234, hex, sq, path);
-    expect(save.version).toBe(2);
+    expect(save.version).toBe(3);
     const parsed = parseSaveDetailed(JSON.stringify(save));
     expect(parsed.ok).toBe(true);
     if (parsed.ok) {
@@ -61,10 +61,73 @@ describe('parseSaveDetailed rechaza sin romper el mundo', () => {
     const hex = new WorldEdits();
     const sq = new WorldEdits();
     const save = buildSave(1234, hex, sq);
-    expect(save.version).toBe(2);
+    expect(save.version).toBe(3);
     expect(save.cameraPath).toBeUndefined();
     const parsed = parseSaveDetailed(JSON.stringify(save));
     expect(parsed.ok).toBe(true);
+  });
+
+  it('acepta archivos v2 con cameraPath (sin inventory) — compat v3', () => {
+    const v2 = JSON.stringify({
+      format: 'hexacraft-save',
+      version: 2,
+      seed: 1234,
+      hex: [],
+      square: [],
+      cameraPath: {
+        keyframes: [{ x: 0, y: 0, z: 0, yaw: 0, pitch: 0 }],
+        duration: 10,
+        loop: false,
+        startDelay: 0,
+      },
+    });
+    const r = parseSaveDetailed(v2);
+    expect(r.ok).toBe(true);
+  });
+
+  it('roundtrip v3: inventario y gameMode se conservan', async () => {
+    const { Inventory } = await import('../src/game/inventory');
+    const inv = new Inventory();
+    inv.set(0, { block: Block.Stone, count: 32 });
+    inv.set(15, { block: Block.Sand, count: 5 });
+    const hex = new WorldEdits();
+    const sq = new WorldEdits();
+    const save = buildSave(1234, hex, sq, undefined, inv, 'survival');
+    const parsed = parseSaveDetailed(JSON.stringify(save));
+    expect(parsed.ok).toBe(true);
+    if (parsed.ok) {
+      expect(parsed.save.version).toBe(3);
+      expect(parsed.save.gameMode).toBe('survival');
+      expect(parsed.save.inventory?.slots[0]).toEqual({ block: Block.Stone, count: 32 });
+      expect(parsed.save.inventory?.slots[15]).toEqual({ block: Block.Sand, count: 5 });
+    }
+  });
+
+  it('gameMode inválido → unknown-format', () => {
+    const bad = JSON.stringify({
+      format: 'hexacraft-save',
+      version: 3,
+      seed: 1,
+      hex: [],
+      square: [],
+      gameMode: 'god-mode',
+    });
+    expect(parseSaveDetailed(bad)).toEqual({ ok: false, error: 'unknown-format' });
+  });
+
+  it('inventory con count > 999 → unknown-format', () => {
+    const bad = JSON.stringify({
+      format: 'hexacraft-save',
+      version: 3,
+      seed: 1,
+      hex: [],
+      square: [],
+      inventory: {
+        version: 1,
+        slots: [{ block: 1, count: 9999 }],
+      },
+    });
+    expect(parseSaveDetailed(bad)).toEqual({ ok: false, error: 'unknown-format' });
   });
 
   it('cameraPath malformado (fotograma sin y) → unknown-format', () => {

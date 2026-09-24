@@ -19,6 +19,11 @@ import {
   pickImportFile,
 } from './state/exportImport';
 import { WorldEdits } from './interact/edits';
+import { Block } from './world/blocks';
+import { Inventory } from './game/inventory';
+import type { GameMode } from './game/gameMode';
+import { ItemManager } from './game/items';
+import { InventoryPanel } from './ui/inventoryPanel';
 import { UndoStack, applyPlan, revertEntry } from './presets/build';
 import { PresetName, buildPreset } from './presets/presets';
 import { planTranslate } from './presets/translate';
@@ -97,6 +102,28 @@ const persistence = new Persistence(seed);
 const hexEdits = persistence.load('hex') ?? new WorldEdits();
 const sqEdits = persistence.load('square') ?? new WorldEdits();
 
+// Inventario y modo de juego (fase 7c).
+const inventory = persistence.loadInventory() ?? defaultInventory();
+let gameMode: GameMode = persistence.loadGameMode() ?? (initialHashState?.game ?? 'creative');
+function defaultInventory(): Inventory {
+  const inv = new Inventory();
+  // En creativo, prellenamos la barra con bloques comunes para poder jugar
+  // sin abrir el inventario.
+  const defaults: Block[] = [
+    Block.Stone,
+    Block.Dirt,
+    Block.Grass,
+    Block.Sand,
+    Block.Log,
+    Block.Leaves,
+    Block.Planks,
+    Block.Brick,
+    Block.Glass,
+  ];
+  for (let i = 0; i < defaults.length; i++) inv.set(i, { block: defaults[i], count: 64 });
+  return inv;
+}
+
 const texture = createBlockTexture(seed);
 const materials = createWorldMaterials(texture);
 
@@ -125,7 +152,9 @@ function applyFog(): void {
 applyFog();
 
 const player = new Player(camera, canvas, activeWorld.grid, activeWorld);
+player.setCanFly(() => gameMode === 'creative');
 const hotbar = new Hotbar(hudRoot, activeWorld.grid);
+hotbar.bindInventory(inventory);
 const outline = new Outline();
 scene.add(outline.mesh);
 const split = new SplitView(hudRoot);
@@ -246,7 +275,12 @@ window.hexacraft = {
 };
 
 const presetMenu = new PresetMenu((name) => runPreset(name));
-const craftingTable = new CraftingTable(hudRoot, activeWorld.grid, () => hotbar.currentBlock());
+const craftingTable = new CraftingTable(hudRoot, activeWorld.grid, () => hotbar.currentBlock() ?? Block.Stone);
+const inventoryPanel = new InventoryPanel(hudRoot, activeWorld.grid, gameMode, inventory, () => {
+  hotbar.refresh();
+  persistence.saveInventory(inventory);
+});
+const itemManager = new ItemManager(scene, activeWorld.grid);
 
 // ---- Recorrido de cámara (fase 7b) ----
 let cameraPath: CameraPath = persistence.loadPath() ?? makeEmptyPath();
@@ -332,6 +366,9 @@ function swapActiveGrid(): void {
   player.setWorld(activeWorld.grid, activeWorld);
   hotbar.swapGrid(activeWorld.grid);
   craftingTable.swapGrid(activeWorld.grid);
+  inventoryPanel.swapGrid(activeWorld.grid);
+  itemManager.setGridKind(activeWorld.grid);
+  itemManager.clear();
   if (!split.active) {
     worldHex.opaqueGroup.visible = activeWorld === worldHex;
     worldHex.waterGroup.visible = activeWorld === worldHex;
@@ -354,6 +391,7 @@ function copyStateToUrl(): void {
     mode: player.state.mode,
     dist: renderDistance,
     textured,
+    game: gameMode,
   };
   const hash = stateToHash(state);
   window.history.replaceState(null, '', hash);
@@ -415,7 +453,7 @@ window.addEventListener('keydown', (e) => {
       }
       break;
     case 'KeyB': // Backup (exportar)
-      downloadSave(buildSave(seed, worldHex.edits, worldSq.edits));
+      downloadSave(buildSave(seed, worldHex.edits, worldSq.edits, cameraPath, inventory, gameMode));
       hud.flashMessage('Guardado descargado');
       break;
     case 'KeyN': // Nuevo (importar)
@@ -465,16 +503,17 @@ window.addEventListener('keydown', (e) => {
       });
       break;
     case 'KeyM':
-      // Atajo rápido: fuente en ambas rejillas (equivalente al preset fuente,
-      // apuntado al hit si hay o al jugador si no). Guarda en las dos edits
-      // aunque la otra rejilla no esté cargada.
-      runPreset('fuente');
+      // Atajo rápido: fuente en ambas rejillas. Solo en creativo.
+      if (gameMode === 'creative') runPreset('fuente');
+      else hud.flashMessage('Solo en creativo');
       break;
     case 'KeyP':
-      presetMenu.toggle();
+      if (gameMode === 'creative') presetMenu.toggle();
+      else hud.flashMessage('Solo en creativo');
       break;
     case 'KeyY':
-      runTranslate();
+      if (gameMode === 'creative') runTranslate();
+      else hud.flashMessage('Solo en creativo');
       break;
     case 'KeyL':
       waterPaused = !waterPaused;
@@ -490,6 +529,19 @@ window.addEventListener('keydown', (e) => {
       break;
     case 'KeyH':
       craftingTable.toggle();
+      break;
+    case 'KeyE':
+      inventoryPanel.toggle();
+      break;
+    case 'KeyJ':
+      gameMode = gameMode === 'creative' ? 'survival' : 'creative';
+      inventoryPanel.setMode(gameMode);
+      persistence.saveGameMode(gameMode);
+      // En supervivencia, si estamos volando, se cae con normalidad.
+      if (gameMode === 'survival' && player.state.mode === 'fly') {
+        player.state.mode = 'walk';
+      }
+      hud.flashMessage(`Modo ${gameMode === 'creative' ? 'creativo' : 'supervivencia'}`);
       break;
     case 'Delete':
       if (window.confirm('¿Borrar mis construcciones de esta semilla?')) {
@@ -587,23 +639,72 @@ function tick(): void {
   const cinema = hud.isCinema();
   if (hit && !cinema && !split.active) outline.update(activeWorld.grid, hit.cell, hit.yLayer);
   else outline.hide();
-  hotbar.setVisible(!cinema && !benchDriving);
+  const hideAllUi = cinema || benchDriving || playback.active;
+  hotbar.setVisible(!hideAllUi);
+  if (hideAllUi) {
+    inventoryPanel.setCinema(true);
+    craftingTable.setCinema(true);
+    presetMenu.setCinema(true);
+  }
 
   const now = performance.now();
   if (leftDown && now >= leftNextAt) {
     if (hit) {
+      const brokenBlock = activeWorld.getBlock(hit.cell.a, hit.cell.b, hit.yLayer);
       const act = tryBreak(hit);
-      if (act) activeWorld.setBlock(act.cell.a, act.cell.b, act.y, act.block);
+      if (act) {
+        activeWorld.setBlock(act.cell.a, act.cell.b, act.y, act.block);
+        // Supervivencia: cada bloque suelta un objeto (excepto agua/aire).
+        if (gameMode === 'survival' && brokenBlock !== Block.Air && brokenBlock !== Block.Water) {
+          const c = activeWorld.grid.center(hit.cell);
+          itemManager.spawn(brokenBlock, c.x, hit.yLayer + 0.5, c.z);
+        }
+      }
     }
     leftNextAt = now + HOLD_REPEAT_MS;
   }
   if (rightDown && now >= rightNextAt) {
     if (hit) {
-      const act = tryPlace(hit, hotbar.currentBlock(), activeWorld.grid, activeWorld, player.state, cfg);
-      if (act) activeWorld.setBlock(act.cell.a, act.cell.b, act.y, act.block);
+      const targetBlock = activeWorld.getBlock(hit.cell.a, hit.cell.b, hit.yLayer);
+      // Clic derecho sobre una mesa de crafteo: abrir el panel en vez de colocar.
+      if (targetBlock === Block.CraftingTable) {
+        if (!craftingTable.isOpen()) craftingTable.toggle();
+      } else {
+        const selectedBlock = hotbar.currentBlock();
+        if (selectedBlock !== null) {
+          // Supervivencia: hay que tener el bloque disponible en la casilla.
+          const invSlot = inventory.get(hotbar.currentIndex());
+          const canPlace = gameMode === 'creative' || (invSlot !== null && invSlot.count > 0);
+          if (canPlace) {
+            const act = tryPlace(hit, selectedBlock, activeWorld.grid, activeWorld, player.state, cfg);
+            if (act) {
+              activeWorld.setBlock(act.cell.a, act.cell.b, act.y, act.block);
+              if (gameMode === 'survival') {
+                inventory.remove(hotbar.currentIndex(), 1);
+                hotbar.refresh();
+                persistence.saveInventory(inventory);
+              }
+            }
+          }
+        }
+      }
     }
     rightNextAt = now + HOLD_REPEAT_MS;
   }
+
+  // Actualiza objetos sueltos (drops) del mundo activo.
+  itemManager.update(
+    Math.min(dt, 0.1),
+    activeWorld,
+    player.state.position.x,
+    player.state.position.y,
+    player.state.position.z,
+    inventory,
+    () => {
+      hotbar.refresh();
+      persistence.saveInventory(inventory);
+    },
+  );
 
   if (split.active) split.render(renderer, scene, camera, worldHex, worldSq);
   else renderer.render(scene, camera);
@@ -636,6 +737,7 @@ function tick(): void {
       ? { a: hit.cell.a, b: hit.cell.b, y: hit.yLayer, face: faceLabel(hit.face) }
       : null,
     split: split.active,
+    gameMode,
   });
 
   requestAnimationFrame(tick);

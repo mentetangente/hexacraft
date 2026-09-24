@@ -18,6 +18,7 @@ export class Player {
   private readonly keys = new Set<string>();
   private readonly euler = new THREE.Euler(0, 0, 0, 'YXZ');
   private placed = false;
+  private canFly: () => boolean = () => true;
 
   constructor(
     private readonly camera: THREE.PerspectiveCamera,
@@ -50,7 +51,8 @@ export class Player {
     window.addEventListener('keydown', (e) => {
       // Toggle de vuelo es one-shot; el resto es estado.
       if (e.code === 'KeyF') {
-        this.input.toggleFly = true;
+        // El llamante puede bloquear el vuelo (por ejemplo, en supervivencia).
+        if (this.canFly()) this.input.toggleFly = true;
         return;
       }
       this.keys.add(e.code);
@@ -59,6 +61,13 @@ export class Player {
       this.keys.delete(e.code);
     });
     window.addEventListener('blur', () => this.keys.clear());
+  }
+
+  // El llamante (main.ts) decide si permitir el vuelo (bloqueado en
+  // supervivencia). Al fijarlo, si actualmente estamos volando y ya no se
+  // puede, se pasa a andar.
+  setCanFly(f: () => boolean): void {
+    this.canFly = f;
   }
 
   swapGrid(newGrid: Grid): void {

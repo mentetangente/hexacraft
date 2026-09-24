@@ -21,6 +21,7 @@ export enum Block {
   WaterL5 = 15,
   WaterL6 = 16,
   WaterL7 = 17,
+  CraftingTable = 18,
 }
 
 export type RGB = readonly [number, number, number];
@@ -149,6 +150,15 @@ export const BLOCKS: readonly BlockDef[] = [
     side: [0.2, 0.42, 0.8],
     bottom: [0.18, 0.4, 0.75],
   })) as BlockDef[]),
+  {
+    name: 'mesa de crafteo',
+    solid: true,
+    opaque: true,
+    transparent: false,
+    top: [0.62, 0.42, 0.22],
+    side: [0.68, 0.52, 0.3],
+    bottom: [0.55, 0.4, 0.22],
+  },
 ];
 
 export function def(block: Block): BlockDef {

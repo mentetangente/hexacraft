@@ -1,5 +1,7 @@
 import { WorldEdits, isValidSerializedEdits } from '../interact/edits';
 import type { CameraPath } from './cameraPath';
+import { Inventory, type SerializedInventory } from '../game/inventory';
+import { isValidGameMode, type GameMode } from '../game/gameMode';
 
 // Persistencia de las construcciones del jugador en localStorage. Clave por
 // semilla y rejilla. Todos los accesos van con try/catch para que un fallo de
@@ -133,6 +135,57 @@ export class Persistence {
       storage.removeItem(this.pathKey());
     } catch {
       /* ignore */
+    }
+  }
+
+  // Inventario + modo de juego (fase 7c).
+  private invKey(): string {
+    return `${KEY_PREFIX}:${this.seed}:inventory`;
+  }
+  private gameKey(): string {
+    return `${KEY_PREFIX}:${this.seed}:gameMode`;
+  }
+
+  saveInventory(inv: Inventory): void {
+    const storage = this.safeGetStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(this.invKey(), JSON.stringify(inv.serialize()));
+    } catch (err) {
+      console.warn('Hexacraft: no se pudo guardar el inventario:', err);
+    }
+  }
+  loadInventory(): Inventory | null {
+    const storage = this.safeGetStorage();
+    if (!storage) return null;
+    try {
+      const raw = storage.getItem(this.invKey());
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as SerializedInventory;
+      if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.slots)) return null;
+      return Inventory.fromSerialized(parsed);
+    } catch {
+      return null;
+    }
+  }
+
+  saveGameMode(m: GameMode): void {
+    const storage = this.safeGetStorage();
+    if (!storage) return;
+    try {
+      storage.setItem(this.gameKey(), m);
+    } catch {
+      /* ignore */
+    }
+  }
+  loadGameMode(): GameMode | null {
+    const storage = this.safeGetStorage();
+    if (!storage) return null;
+    try {
+      const raw = storage.getItem(this.gameKey());
+      return isValidGameMode(raw) ? raw : null;
+    } catch {
+      return null;
     }
   }
 }

@@ -10,6 +10,7 @@ const sample: AppState = {
   mode: 'walk',
   dist: 96,
   textured: true,
+  game: 'creative',
 };
 
 describe('hashState', () => {
@@ -61,6 +62,7 @@ describe('hashState', () => {
       mode: 'fly',
       dist: 256,
       textured: false,
+      game: 'survival',
     };
     const back = hashToState(stateToHash(s));
     expect(back!.grid).toBe('square');

@@ -6,21 +6,25 @@ import {
 import { BLOCKS } from '../world/blocks';
 import { CHUNK_HEIGHT, CHUNK_WIDTH } from '../world/Chunk';
 import type { CameraPath, Keyframe } from './cameraPath';
+import type { Inventory, SerializedInventory } from '../game/inventory';
+import { isValidGameMode, type GameMode } from '../game/gameMode';
 
 // Formato de archivo JSON para exportar/importar construcciones. Incluye
 // versión y validación estricta al importar (rechaza malformados sin romper
 // el mundo actual).
 
-// Formato v1: solo `seed`, `hex`, `square`. Formato v2 añade opcionalmente
-// `cameraPath`. Los archivos v1 siguen aceptándose (compatibilidad hacia
-// atrás), y el exportador genera siempre v2.
+// Formato v1: seed, hex, square. v2 añade opcionalmente cameraPath. v3 añade
+// opcionalmente inventory y gameMode. Los archivos v1 y v2 siguen aceptándose
+// (compatibilidad hacia atrás); el exportador genera siempre v3.
 export interface HexacraftSave {
   readonly format: 'hexacraft-save';
-  readonly version: 1 | 2;
+  readonly version: 1 | 2 | 3;
   readonly seed: number;
   readonly hex: SerializedEdits;
   readonly square: SerializedEdits;
   readonly cameraPath?: CameraPath;
+  readonly inventory?: SerializedInventory;
+  readonly gameMode?: GameMode;
 }
 
 // Límites razonables: 5 MB de texto y 200 000 modificaciones totales.
@@ -49,18 +53,20 @@ export function buildSave(
   hex: WorldEdits,
   square: WorldEdits,
   cameraPath?: CameraPath,
+  inventory?: Inventory,
+  gameMode?: GameMode,
 ): HexacraftSave {
-  const base: HexacraftSave = {
+  const out: Record<string, unknown> = {
     format: 'hexacraft-save',
-    version: 2,
+    version: 3,
     seed,
     hex: hex.serialize(),
     square: square.serialize(),
   };
-  if (cameraPath) {
-    return { ...base, cameraPath };
-  }
-  return base;
+  if (cameraPath) out.cameraPath = cameraPath;
+  if (inventory) out.inventory = inventory.serialize();
+  if (gameMode) out.gameMode = gameMode;
+  return out as unknown as HexacraftSave;
 }
 
 function isValidKeyframe(v: unknown): v is Keyframe {
@@ -83,18 +89,34 @@ function isValidCameraPath(v: unknown): v is CameraPath {
   return true;
 }
 
+function isValidSerializedInventory(v: unknown): v is SerializedInventory {
+  if (typeof v !== 'object' || v === null) return false;
+  const o = v as Record<string, unknown>;
+  if (o.version !== 1) return false;
+  if (!Array.isArray(o.slots)) return false;
+  for (const s of o.slots) {
+    if (s === null) continue;
+    if (typeof s !== 'object') return false;
+    const st = s as Record<string, unknown>;
+    if (typeof st.block !== 'number' || !Number.isInteger(st.block)) return false;
+    if (typeof st.count !== 'number' || !Number.isInteger(st.count)) return false;
+    if (st.count < 0 || st.count > 999) return false; // límite razonable
+  }
+  return true;
+}
+
 export function isValidSave(v: unknown): v is HexacraftSave {
   if (typeof v !== 'object' || v === null) return false;
   const o = v as Record<string, unknown>;
   if (o.format !== 'hexacraft-save') return false;
-  if (o.version !== 1 && o.version !== 2) return false;
+  if (o.version !== 1 && o.version !== 2 && o.version !== 3) return false;
   if (typeof o.seed !== 'number' || !Number.isFinite(o.seed)) return false;
   if (!isValidSerializedEdits(o.hex)) return false;
   if (!isValidSerializedEdits(o.square)) return false;
-  // v2 puede llevar cameraPath; si viene, se valida. Si es v1, se ignora.
-  if (o.version === 2 && o.cameraPath !== undefined && !isValidCameraPath(o.cameraPath)) {
-    return false;
-  }
+  // v2+ puede llevar cameraPath; v3+ puede llevar inventory y gameMode.
+  if (o.cameraPath !== undefined && !isValidCameraPath(o.cameraPath)) return false;
+  if (o.inventory !== undefined && !isValidSerializedInventory(o.inventory)) return false;
+  if (o.gameMode !== undefined && !isValidGameMode(o.gameMode)) return false;
   return true;
 }
 

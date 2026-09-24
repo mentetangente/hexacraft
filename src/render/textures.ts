@@ -21,9 +21,11 @@ export enum TexLayer {
   Planks,
   Brick,
   Glass,
+  CraftingTop,
+  CraftingSide,
 }
 
-const LAYER_COUNT = 13;
+const LAYER_COUNT = 15;
 
 // Hash 32-bit determinista. Sirve para el ruido de las texturas.
 function hash(seed: number, x: number, y: number): number {
@@ -280,6 +282,61 @@ function makeGlass(data: Uint8Array, seed: number): void {
   }
 }
 
+function makeCraftingTop(data: Uint8Array, seed: number): void {
+  // Tapa de mesa: tablones marrones con una rejilla oscura marcando el
+  // "área de trabajo" (una cruz en el centro). Nada de imitar juegos existentes.
+  const s = seed ^ 0xc4a4de00;
+  for (let y = 0; y < TEX_SIZE; y++) {
+    for (let x = 0; x < TEX_SIZE; x++) {
+      const n = (hash(s, x, y) - 0.5) * 0.06;
+      let R = 0.55 + n;
+      let G = 0.36 + n;
+      let B = 0.18 + n;
+      // Cruz central de tres casillas oscuras.
+      const cross =
+        (x >= 4 && x <= 11 && (y === 7 || y === 8)) ||
+        (y >= 4 && y <= 11 && (x === 7 || x === 8));
+      if (cross) {
+        R *= 0.5;
+        G *= 0.5;
+        B *= 0.5;
+      }
+      // Marco exterior.
+      if (x === 0 || y === 0 || x === TEX_SIZE - 1 || y === TEX_SIZE - 1) {
+        R *= 0.6;
+        G *= 0.6;
+        B *= 0.6;
+      }
+      setPx(data, TexLayer.CraftingTop, x, y, c255(R), c255(G), c255(B));
+    }
+  }
+}
+
+function makeCraftingSide(data: Uint8Array, seed: number): void {
+  // Lateral: tablones con una banda oscura arriba (canto de la tapa).
+  const s = seed ^ 0xc4a4d51e;
+  for (let y = 0; y < TEX_SIZE; y++) {
+    const isTopEdge = y >= 13;
+    const isSeam = y % 4 === 0;
+    for (let x = 0; x < TEX_SIZE; x++) {
+      const n = (hash(s, x, y) - 0.5) * 0.06;
+      let R = 0.68 + n;
+      let G = 0.5 + n;
+      let B = 0.28 + n;
+      if (isTopEdge) {
+        R *= 0.55;
+        G *= 0.55;
+        B *= 0.55;
+      } else if (isSeam) {
+        R -= 0.12;
+        G -= 0.10;
+        B -= 0.06;
+      }
+      setPx(data, TexLayer.CraftingSide, x, y, c255(R), c255(G), c255(B));
+    }
+  }
+}
+
 export function createBlockTexture(seed: number): THREE.DataArrayTexture {
   const data = new Uint8Array(TEX_SIZE * TEX_SIZE * 4 * LAYER_COUNT);
   makeStone(data, seed);
@@ -295,6 +352,8 @@ export function createBlockTexture(seed: number): THREE.DataArrayTexture {
   makePlanks(data, seed);
   makeBrick(data, seed);
   makeGlass(data, seed);
+  makeCraftingTop(data, seed);
+  makeCraftingSide(data, seed);
 
   const tex = new THREE.DataArrayTexture(data, TEX_SIZE, TEX_SIZE, LAYER_COUNT);
   tex.format = THREE.RGBAFormat;
@@ -334,6 +393,8 @@ export function texLayerFor(block: Block, face: 'top' | 'side' | 'bottom'): numb
       return TexLayer.Brick;
     case Block.Glass:
       return TexLayer.Glass;
+    case Block.CraftingTable:
+      return face === 'side' ? TexLayer.CraftingSide : TexLayer.CraftingTop;
     default:
       return TexLayer.Stone;
   }

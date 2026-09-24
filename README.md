@@ -10,29 +10,11 @@ cambiando de rejilla con una tecla.
 
 > Proyecto de fan sin afiliación con Mojang ni Microsoft.
 
-## Cómo ejecutarlo
+## ¡Juega online!
 
-Se necesita Node.js 22 o superior.
+**→ [mentetangente.github.io/hexacraft](https://mentetangente.github.io/hexacraft/)**
 
-```bash
-npm install
-npm run dev
-```
-
-Se abre en `http://localhost:5173/hexacraft/`. Para el build de producción:
-
-```bash
-npm run build
-npm run preview
-```
-
-Otros scripts:
-
-```bash
-npm run test        # Vitest
-npm run typecheck   # tsc --noEmit
-npm run lint        # ESLint
-```
+Se abre directamente en el navegador, sin instalar nada.
 
 ## Controles
 

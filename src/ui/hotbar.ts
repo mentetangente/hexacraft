@@ -36,13 +36,13 @@ export class Hotbar {
 
     this.crosshair = document.createElement('div');
     this.crosshair.style.cssText =
-      'position:absolute;top:50%;left:50%;width:16px;height:16px;transform:translate(-50%,-50%);color:#fff;text-shadow:0 0 3px rgba(0,0,0,0.9);font:16px monospace;line-height:16px;text-align:center;pointer-events:none;';
+      'position:fixed;top:50%;left:50%;width:16px;height:16px;transform:translate(-50%,-50%);color:#fff;text-shadow:0 0 3px rgba(0,0,0,0.9);font:16px monospace;line-height:16px;text-align:center;pointer-events:none;';
     this.crosshair.textContent = '+';
     root.appendChild(this.crosshair);
 
     this.container = document.createElement('div');
     this.container.style.cssText =
-      'position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:4px;padding:4px;background:rgba(0,0,0,0.35);border-radius:6px;pointer-events:none;';
+      'position:fixed;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:4px;padding:4px;background:rgba(0,0,0,0.35);border-radius:6px;pointer-events:none;';
     root.appendChild(this.container);
 
     for (let i = 0; i < SLOTS; i++) {
@@ -54,7 +54,7 @@ export class Hotbar {
 
     this.label = document.createElement('div');
     this.label.style.cssText =
-      'position:absolute;bottom:72px;left:50%;transform:translateX(-50%);font:14px ui-monospace,Consolas,monospace;color:#fff;background:rgba(0,0,0,0.55);padding:4px 10px;border-radius:4px;pointer-events:none;opacity:0;transition:opacity 0.25s ease;';
+      'position:fixed;bottom:72px;left:50%;transform:translateX(-50%);font:14px ui-monospace,Consolas,monospace;color:#fff;background:rgba(0,0,0,0.55);padding:4px 10px;border-radius:4px;pointer-events:none;opacity:0;transition:opacity 0.25s ease;';
     root.appendChild(this.label);
 
     this.regenerateIcons();

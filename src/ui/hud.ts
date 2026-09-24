@@ -19,6 +19,7 @@ export interface HudInputs {
   onGround: boolean;
   inWater: boolean;
   mode: 'walk' | 'fly';
+  pointed: { a: number; b: number; y: number; face: string } | null;
 }
 
 export class Hud {
@@ -59,11 +60,18 @@ export class Hud {
     this.panelF3.style.display = this.cinema ? 'none' : this.visible ? 'block' : 'none';
   }
 
+  isCinema(): boolean {
+    return this.cinema;
+  }
+
   update(x: HudInputs): void {
     if (!this.visible || this.cinema) return;
     const kind = x.grid.kind === 'hex' ? 'hexágonos' : 'cuadrados';
     const cellLabel = x.grid.kind === 'hex' ? `q=${x.cameraCell.a} r=${x.cameraCell.b}` : `x=${x.cameraCell.a} z=${x.cameraCell.b}`;
     const speed = Math.hypot(x.playerVel.x, x.playerVel.z);
+    const pointedLabel = x.pointed
+      ? `${x.grid.kind === 'hex' ? `q=${x.pointed.a} r=${x.pointed.b}` : `x=${x.pointed.a} z=${x.pointed.b}`} y=${nf0.format(x.pointed.y)} · ${x.pointed.face}`
+      : '—';
     this.panelF3.textContent = [
       `fps             ${nf1.format(x.fps)}`,
       `rejilla         ${kind}`,
@@ -74,6 +82,7 @@ export class Hud {
       `vel vertical    ${nf1.format(x.playerVel.y)} u/s`,
       `en suelo        ${x.onGround ? 'sí' : 'no'}`,
       `en agua         ${x.inWater ? 'sí' : 'no'}`,
+      `apuntando       ${pointedLabel}`,
       `triángulos      ${nf0.format(x.trianglesRendered)}`,
       `chunks          ${nf0.format(x.chunksLoaded)}`,
       `distancia       ${nf0.format(x.renderDistance)} u`,

@@ -1,0 +1,253 @@
+import type { Grid, Point2 } from '../grid';
+import { Block, BLOCKS, def } from '../world/blocks';
+
+// Barra de bloques con 9 huecos, teclas 1..9 y rueda del ratón. Los iconos se
+// dibujan por código en un canvas 2D con proyección isométrica de la forma de
+// la rejilla activa; se regeneran al cambiar de rejilla (G).
+
+const SLOTS = 9;
+const ICON_SIZE = 48;
+
+const HOTBAR_ITEMS: readonly Block[] = [
+  Block.Stone,
+  Block.Dirt,
+  Block.Grass,
+  Block.Sand,
+  Block.Log,
+  Block.Leaves,
+  Block.Planks,
+  Block.Brick,
+  Block.Glass,
+];
+
+export class Hotbar {
+  private grid: Grid;
+  private readonly root: HTMLElement;
+  private readonly container: HTMLElement;
+  private readonly slotEls: HTMLElement[] = [];
+  private readonly label: HTMLElement;
+  private readonly crosshair: HTMLElement;
+  private selected = 0;
+  private labelTimer: number | null = null;
+
+  constructor(root: HTMLElement, grid: Grid) {
+    this.grid = grid;
+    this.root = root;
+
+    this.crosshair = document.createElement('div');
+    this.crosshair.style.cssText =
+      'position:absolute;top:50%;left:50%;width:16px;height:16px;transform:translate(-50%,-50%);color:#fff;text-shadow:0 0 3px rgba(0,0,0,0.9);font:16px monospace;line-height:16px;text-align:center;pointer-events:none;';
+    this.crosshair.textContent = '+';
+    root.appendChild(this.crosshair);
+
+    this.container = document.createElement('div');
+    this.container.style.cssText =
+      'position:absolute;bottom:8px;left:50%;transform:translateX(-50%);display:flex;gap:4px;padding:4px;background:rgba(0,0,0,0.35);border-radius:6px;pointer-events:none;';
+    root.appendChild(this.container);
+
+    for (let i = 0; i < SLOTS; i++) {
+      const slot = document.createElement('div');
+      slot.style.cssText = `width:${ICON_SIZE}px;height:${ICON_SIZE}px;background:rgba(0,0,0,0.35);border:2px solid transparent;border-radius:4px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;`;
+      this.container.appendChild(slot);
+      this.slotEls.push(slot);
+    }
+
+    this.label = document.createElement('div');
+    this.label.style.cssText =
+      'position:absolute;bottom:72px;left:50%;transform:translateX(-50%);font:14px ui-monospace,Consolas,monospace;color:#fff;background:rgba(0,0,0,0.55);padding:4px 10px;border-radius:4px;pointer-events:none;opacity:0;transition:opacity 0.25s ease;';
+    root.appendChild(this.label);
+
+    this.regenerateIcons();
+    this.select(0, false);
+  }
+
+  currentBlock(): Block {
+    return HOTBAR_ITEMS[this.selected];
+  }
+
+  currentIndex(): number {
+    return this.selected;
+  }
+
+  swapGrid(grid: Grid): void {
+    this.grid = grid;
+    this.regenerateIcons();
+  }
+
+  select(index: number, showLabel = true): void {
+    if (index < 0 || index >= SLOTS) return;
+    this.slotEls[this.selected].style.borderColor = 'transparent';
+    this.selected = index;
+    this.slotEls[index].style.borderColor = '#fff';
+    if (showLabel) this.showLabel(def(HOTBAR_ITEMS[index]).name);
+  }
+
+  onKey(code: string): boolean {
+    if (code.length === 6 && code.startsWith('Digit')) {
+      const d = parseInt(code.slice(5), 10);
+      if (d >= 1 && d <= 9) {
+        this.select(d - 1);
+        return true;
+      }
+    }
+    return false;
+  }
+
+  onWheel(deltaY: number): void {
+    const dir = deltaY > 0 ? 1 : -1;
+    this.select((this.selected + dir + SLOTS) % SLOTS);
+  }
+
+  setVisible(v: boolean): void {
+    const disp = v ? '' : 'none';
+    this.container.style.display = v ? 'flex' : 'none';
+    this.crosshair.style.display = disp;
+    if (!v) this.label.style.opacity = '0';
+  }
+
+  private showLabel(text: string): void {
+    this.label.textContent = text;
+    this.label.style.opacity = '1';
+    if (this.labelTimer !== null) window.clearTimeout(this.labelTimer);
+    this.labelTimer = window.setTimeout(() => {
+      this.label.style.opacity = '0';
+      this.labelTimer = null;
+    }, 1000);
+  }
+
+  private regenerateIcons(): void {
+    for (let i = 0; i < SLOTS; i++) {
+      const slot = this.slotEls[i];
+      while (slot.firstChild) slot.removeChild(slot.firstChild);
+      slot.appendChild(drawBlockIcon(this.grid, HOTBAR_ITEMS[i]));
+    }
+  }
+
+  dispose(): void {
+    if (this.labelTimer !== null) window.clearTimeout(this.labelTimer);
+    this.root.removeChild(this.container);
+    this.root.removeChild(this.label);
+    this.root.removeChild(this.crosshair);
+  }
+}
+
+// -------- dibujo del icono --------
+
+// Proyección iso muy sencilla: mira al bloque desde arriba-derecha-frente.
+// Devuelve píxeles del canvas.
+function isoProject(
+  x: number,
+  y: number,
+  z: number,
+  cx: number,
+  cy: number,
+  scale: number,
+): { x: number; y: number } {
+  const cos30 = 0.8660254;
+  const sin30 = 0.5;
+  return {
+    x: cx + (x - z) * scale * cos30,
+    y: cy - y * scale + (x + z) * scale * sin30,
+  };
+}
+
+function toCss(rgb: readonly [number, number, number], shade: number): string {
+  const r = clamp255(rgb[0] * shade * 255);
+  const g = clamp255(rgb[1] * shade * 255);
+  const b = clamp255(rgb[2] * shade * 255);
+  return `rgb(${r},${g},${b})`;
+}
+
+const clamp255 = (v: number): number => Math.max(0, Math.min(255, Math.round(v)));
+
+function drawBlockIcon(grid: Grid, block: Block): HTMLCanvasElement {
+  const c = document.createElement('canvas');
+  c.width = ICON_SIZE;
+  c.height = ICON_SIZE;
+  const ctx = c.getContext('2d');
+  if (!ctx) return c;
+
+  const fp = grid.footprintLocal();
+  const n = fp.length;
+  const d = BLOCKS[block];
+
+  // Escala automática: el bloque cabe con margen.
+  // Ancho máximo del bloque en iso ≈ 2 * (max |x|+|z|) * cos30. Estimación segura.
+  const halfWorld = fpMaxRadius(fp) + 0.5;
+  const iconRadius = ICON_SIZE * 0.42;
+  const scale = iconRadius / halfWorld;
+  const cx = ICON_SIZE * 0.5;
+  const cy = ICON_SIZE * 0.55;
+
+  const yTop = 0.5;
+  const yBot = -0.5;
+  const topProj = fp.map((p) => isoProject(p.x, yTop, p.z, cx, cy, scale));
+  const botProj = fp.map((p) => isoProject(p.x, yBot, p.z, cx, cy, scale));
+
+  // Dirección de cámara en XZ para decidir qué laterales pintar (los que
+  // tienen normal exterior con dot positivo).
+  const camX = 0.7071;
+  const camZ = 0.7071;
+
+  ctx.lineWidth = 1;
+  ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+
+  // Laterales de fondo primero, delanteros después (orden Painter simple).
+  // Ordenar por profundidad iso descendente para minimizar solapes.
+  interface Side {
+    i: number;
+    depth: number;
+    dot: number;
+  }
+  const sides: Side[] = [];
+  for (let i = 0; i < n; i++) {
+    const a = fp[i];
+    const b = fp[(i + 1) % n];
+    const nx = a.z - b.z;
+    const nz = b.x - a.x;
+    const dot = nx * camX + nz * camZ;
+    if (dot <= 1e-6) continue;
+    // Profundidad iso ≈ (x + z) del punto medio de la arista.
+    const depth = (a.x + b.x + a.z + b.z) * 0.5;
+    sides.push({ i, depth, dot });
+  }
+  sides.sort((p, q) => p.depth - q.depth);
+
+  for (const s of sides) {
+    const j = (s.i + 1) % n;
+    const nLen = Math.hypot(fp[s.i].z - fp[j].z, fp[j].x - fp[s.i].x);
+    const shade = 0.55 + 0.35 * (s.dot / nLen);
+    ctx.fillStyle = toCss(d.side, shade);
+    ctx.beginPath();
+    ctx.moveTo(topProj[s.i].x, topProj[s.i].y);
+    ctx.lineTo(botProj[s.i].x, botProj[s.i].y);
+    ctx.lineTo(botProj[j].x, botProj[j].y);
+    ctx.lineTo(topProj[j].x, topProj[j].y);
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
+  }
+
+  // Tapa superior encima.
+  ctx.fillStyle = toCss(d.top, 1.0);
+  ctx.beginPath();
+  for (let i = 0; i < n; i++) {
+    const p = topProj[i];
+    if (i === 0) ctx.moveTo(p.x, p.y);
+    else ctx.lineTo(p.x, p.y);
+  }
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+
+  return c;
+}
+
+function fpMaxRadius(fp: readonly Point2[]): number {
+  let r = 0;
+  for (const p of fp) {
+    const d = Math.hypot(p.x, p.z);
+    if (d > r) r = d;
+  }
+  return r;
+}

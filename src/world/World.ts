@@ -7,6 +7,8 @@ import { Terrain, generateChunk } from './terrain';
 import { BlockLookup, ChunkMeshResult, meshChunk } from '../render/mesher';
 import { WorldMaterials, createWorldMaterials } from '../render/materials';
 import { createBlockTexture } from '../render/textures';
+import { WorldEdits } from '../interact/edits';
+import { CHUNK_SIZE } from '../grid';
 
 interface ChunkMeshEntry {
   opaque?: THREE.Mesh;
@@ -45,6 +47,12 @@ export class World {
 
   private readonly texture: THREE.DataArrayTexture;
   private readonly materials: WorldMaterials;
+
+  // Diferencias del jugador por rejilla: hex y cuadrada se guardan por
+  // separado (celdas y coord de mundo distintas). Sobreviven a descargar
+  // y recargar chunks.
+  private readonly editsHex = new WorldEdits();
+  private readonly editsSquare = new WorldEdits();
 
   private genTimes: number[] = [];
   private meshTimes: number[] = [];
@@ -162,9 +170,13 @@ export class World {
     }
   }
 
+  private get currentEdits(): WorldEdits {
+    return this.grid.kind === 'hex' ? this.editsHex : this.editsSquare;
+  }
+
   private loadChunk(ca: number, cb: number): void {
     const t0 = performance.now();
-    const chunk = generateChunk(this.grid, this.terrain, ca, cb);
+    const chunk = generateChunk(this.grid, this.terrain, ca, cb, this.currentEdits);
     const t1 = performance.now();
     this.chunks.set(chunkKey(ca, cb), chunk);
     this.record(this.genTimes, t1 - t0);
@@ -277,6 +289,32 @@ export class World {
   hasChunkAt(worldA: number, worldB: number): boolean {
     const cl = this.grid.cellToChunk({ a: worldA, b: worldB });
     return this.chunks.has(chunkKey(cl.chunkA, cl.chunkB));
+  }
+
+  // Aplica una modificación del jugador. Guarda el diff, actualiza el chunk
+  // cargado y re-encola la malla; si la celda está en el borde del chunk,
+  // también remalla el vecino afectado para actualizar el culling.
+  setBlock(worldA: number, worldB: number, y: number, block: Block): boolean {
+    if (y < 0 || y >= CHUNK_HEIGHT) return false;
+    const cl = this.grid.cellToChunk({ a: worldA, b: worldB });
+    this.currentEdits.set(cl.chunkA, cl.chunkB, cl.localA, cl.localB, y, block);
+    const ck = chunkKey(cl.chunkA, cl.chunkB);
+    const chunk = this.chunks.get(ck);
+    if (chunk) {
+      chunk.set(cl.localA, cl.localB, y, block);
+      this.dirtyMeshes.add(ck);
+      // Vecinos por borde de chunk.
+      if (cl.localA === 0) this.dirtyIfLoaded(cl.chunkA - 1, cl.chunkB);
+      if (cl.localA === CHUNK_SIZE - 1) this.dirtyIfLoaded(cl.chunkA + 1, cl.chunkB);
+      if (cl.localB === 0) this.dirtyIfLoaded(cl.chunkA, cl.chunkB - 1);
+      if (cl.localB === CHUNK_SIZE - 1) this.dirtyIfLoaded(cl.chunkA, cl.chunkB + 1);
+    }
+    return true;
+  }
+
+  private dirtyIfLoaded(ca: number, cb: number): void {
+    const k = chunkKey(ca, cb);
+    if (this.chunks.has(k)) this.dirtyMeshes.add(k);
   }
 }
 

@@ -1,5 +1,6 @@
 import { createNoise2D } from 'simplex-noise';
 import type { Grid } from '../grid';
+import type { WorldEdits } from '../interact/edits';
 import { Block } from './blocks';
 import { Chunk, CHUNK_HEIGHT, CHUNK_WIDTH } from './Chunk';
 import { hash01 } from './rng';
@@ -165,6 +166,7 @@ export function generateChunk(
   terrain: Terrain,
   chunkA: number,
   chunkB: number,
+  edits?: WorldEdits,
 ): Chunk {
   const chunk = new Chunk(chunkA, chunkB);
 
@@ -192,6 +194,10 @@ export function generateChunk(
       plantTree(grid, chunk, chunkA, chunkB, cand);
     }
   }
+
+  // 3) Diferencias del jugador (romper/colocar) sobre la generación. Se
+  // aplican al final para que sobrevivan a la descarga y regeneración.
+  if (edits) edits.applyToChunk(chunk, chunkA, chunkB);
 
   return chunk;
 }

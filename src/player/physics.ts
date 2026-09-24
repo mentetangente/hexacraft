@@ -161,7 +161,7 @@ function pushCircleOutOfPolygon(
   return { nx, nz, penetration };
 }
 
-function circleTouchesCell(
+export function circleTouchesCell(
   grid: Grid,
   cell: Cell,
   px: number,
